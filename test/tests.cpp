@@ -29,10 +29,11 @@ BOOST_AUTO_TEST_CASE( boost_threads_test ) {
 BOOST_AUTO_TEST_CASE(pool_trivial) {
     Pool pool(2, 5);
     BOOST_CHECK_EQUAL(2, pool.getHotThreads());
-    StateChanger stateChanger;
+    StateChanger* stateChanger = new StateChanger();
 
     Future<int> future = pool.submit(stateChanger);
     BOOST_CHECK_EQUAL(false, future.isDone());
     BOOST_CHECK_EQUAL(false, future.isCanceled());
+    BOOST_CHECK_EQUAL(1, future.getTaskId());
     
 }
