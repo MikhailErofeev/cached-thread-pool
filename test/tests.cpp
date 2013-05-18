@@ -4,27 +4,35 @@
 #include <boost/thread/xtime.hpp>
 #include "../src/Pool.h"
 
-BOOST_AUTO_TEST_CASE( boost_tests_test ) {
+BOOST_AUTO_TEST_CASE( boost_tests_test ) 
+{
 	BOOST_CHECK_EQUAL(2*2, 4);
 }
 
-class Runner{
+class StateChanger: public Callable<int>{
 	public:
     int state;
-    void run(){
+    virtual int call(){
         state = 1;
+        return state;
     }
 };
 
 BOOST_AUTO_TEST_CASE( boost_threads_test ) {
-	Runner runner;
-    boost::thread thread =  boost::thread(boost::bind(&Runner::run, &runner));
+	StateChanger stateChanger;
+    boost::thread thread =  boost::thread(boost::bind(&StateChanger::call, &stateChanger));
     thread.join();
-    BOOST_CHECK_EQUAL(1, runner.state);
+    BOOST_CHECK_EQUAL(1, stateChanger.state);
 }
 
 
 BOOST_AUTO_TEST_CASE(pool_trivial) {
     Pool pool(2, 5);
     BOOST_CHECK_EQUAL(2, pool.getHotThreads());
+    StateChanger stateChanger;
+
+    Future<int> future = pool.submit(stateChanger);
+    BOOST_CHECK_EQUAL(false, future.isDone());
+    BOOST_CHECK_EQUAL(false, future.isCanceled());
+    
 }
