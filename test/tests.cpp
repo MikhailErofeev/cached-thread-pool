@@ -1,5 +1,5 @@
 #define BOOST_TEST_MODULE tests
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <boost/thread/thread.hpp>
 #include <boost/thread/xtime.hpp>
 
