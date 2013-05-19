@@ -3,6 +3,7 @@
 #include <list>
 #include "stdio.h"
 #include <boost/thread/thread.hpp>
+#include <utility> 
 
 template <typename T>
 class Future{
@@ -14,7 +15,7 @@ public:
 	void cancel();
 	T get();
 private:
-	bool done; //can't name to isDone????
+	bool done;
 	bool canceled;
 	const int taskId;
 };
@@ -59,7 +60,7 @@ public:
 	inline int getHotThreads() const {return hotThreads;}
 	inline double getTimeout() const {return timeout;}
 private:
-	std::list<Worker*> workers;
+	std::list<std::pair<boost::thread*, Worker*> > workers;
 	const int hotThreads;
 	const double timeout;
 };
@@ -70,16 +71,25 @@ Pool::Pool(const int hotThreadsParam, const double timeoutParam):
 	hotThreads(hotThreadsParam), timeout(timeoutParam) {
 	for (int i = 0; i < hotThreads; i++){
 		Worker* worker = new Worker();
-		boost::thread(boost::bind(&Worker::run, worker));
-		workers.push_back(worker);
+		boost::thread* thread = new boost::thread(boost::bind(&Worker::run, worker));
+
+		workers.push_back(std::make_pair(thread, worker));
 	}
 }
 
-Pool::~Pool(){}
+Pool::~Pool(){
+	printf("start destrunction\n");
+	for (std::list<std::pair<boost::thread*, Worker*> >::iterator it = this->workers.begin();  //@todo use C++x11?
+		it != this->workers.end(); ++it){
+		(*(it)).first->interrupt(); //keep claim and kill it with fire
+		delete (*(it)).second;
+	}
+	printf("end destrunction\n");
+}
 
 template <typename T>
 Future<T> Pool::submit(const Callable<T>* task){
-	return (*workers.begin())->setTask(task);
+	return (*workers.begin()).second->setTask(task);
 }
 
 template <typename T>

@@ -38,5 +38,6 @@ BOOST_AUTO_TEST_CASE(pool_trivial) {
     BOOST_CHECK_EQUAL(false, future.isDone());
     BOOST_CHECK_EQUAL(false, future.isCanceled());
     BOOST_CHECK_EQUAL(1, future.getTaskId());
+    printf("stop test\n");
     
 }
