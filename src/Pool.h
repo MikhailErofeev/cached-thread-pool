@@ -38,18 +38,20 @@ private:
 class Worker{
 public:
 	Worker();
-	~Worker();
 	template <typename T>
 	Future<T> setTask(const Callable<T>* task);
 	Callable<void*>* getCurrentTask(){return currentTask;}
 	bool isWaiting() const {return waiting;}
 	void run();
 	boost::thread thread;
+	bool deleted;
+	boost::condition_variable* cond;
+	void cleans();
 private:
 	bool waiting;
 	Callable<void*>* currentTask;
-	boost::condition_variable* cond;
-	boost::unique_lock<boost::mutex>* mtx_;
+	boost::unique_lock<boost::mutex>* unique_lock;
+	boost::mutex* mtx;
 };
 
 
@@ -91,8 +93,9 @@ Pool::~Pool(){
 	printf("start destrunction\n");
 	for (std::list<Worker*>::iterator it = this->workers.begin();  //@todo use C++x11?
 		it != this->workers.end(); ++it){
-		printf("prepare to interrupt\n");
-		delete *(it);
+		delete &(*(it))->thread;
+		(*(it))->deleted = true;
+		(*(it))->cond->notify_all();
 		//while(!(*(it))->interrupted());
 		//(*(it)).second->cond.notify_all();
 	}
@@ -114,19 +117,29 @@ Future<T> Worker::setTask(const Callable<T>* task){
 
 
 Worker::Worker(){
-	mtx_ = new boost::unique_lock<boost::mutex>(); //@fixme memory leak!!!!
-	cond = new boost::condition_variable(); //@fixme memory leak!!!!
+	mtx = new boost::mutex();
+	unique_lock = new boost::unique_lock<boost::mutex>(*mtx);
+	cond = new boost::condition_variable();
+	deleted = false;
 }
 
-Worker::~Worker(){
+
+void Worker::cleans(){
+	printf ("run cleans\n");
+	delete cond;
+	delete unique_lock;
+	delete mtx;
 }
 
 void Worker::run(){
 	while(true){
-		printf("worker run 1\n");
 		while (this->currentTask != 0){
-			printf("worker - go wait\n");
-			cond->wait(*mtx_);
+			printf("start waiting\n");
+			cond->wait(*unique_lock);
+			printf("stop waiting\n");
+			if (deleted)
+				cleans();
+				return;
 		}
 		void* ret = this->currentTask->call();
 	}
