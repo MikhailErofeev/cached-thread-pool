@@ -9,9 +9,9 @@ template <typename T>
 class Future{
 public:
 	Future(int);
-	inline bool isDone() const {return done;}
-	inline bool isCanceled() const {return canceled;}
-	inline int getTaskId() const {return taskId;}
+	bool isDone() const {return done;}
+	bool isCanceled() const {return canceled;}
+	int getTaskId() const {return taskId;}
 	void cancel();
 	T get();
 private:
@@ -25,7 +25,7 @@ class Callable{
 public:
 	Callable():taskId(generateTaskId()){}
 	virtual T call() = 0;
-	inline int getTaskId() const{return taskId;}
+	int getTaskId() const{return taskId;}
 private:
 	int generateTaskId(){
 		static volatile int N = 0;
@@ -37,16 +37,19 @@ private:
 
 class Worker{
 public:
+	Worker();
+	~Worker();
 	template <typename T>
 	Future<T> setTask(const Callable<T>* task);
-	inline Callable<void*>* getCurrentTask(){return currentTask;}
-	inline bool isWaiting() const {return waiting;}
+	Callable<void*>* getCurrentTask(){return currentTask;}
+	bool isWaiting() const {return waiting;}
 	void run();
+	boost::thread thread;
 private:
 	bool waiting;
 	Callable<void*>* currentTask;
-	boost::unique_lock<boost::mutex> mtx_;
-	boost::condition_variable cond;
+	boost::condition_variable* cond;
+	boost::unique_lock<boost::mutex>* mtx_;
 };
 
 
@@ -57,40 +60,46 @@ public:
 	virtual ~Pool();
 	template <typename T>
 	Future<T> submit(const Callable<T>* c);
-	inline int getHotThreads() const {return hotThreads;}
-	inline double getTimeout() const {return timeout;}
+	int getHotThreads() const {return hotThreads;}
+	double getTimeout() const {return timeout;}
 private:
-	std::list<std::pair<boost::thread*, Worker*> > workers;
+	std::list<Worker* > workers;
 	const int hotThreads;
 	const double timeout;
 };
 
 
+//################ Implementation ################################
 
 Pool::Pool(const int hotThreadsParam, const double timeoutParam): 
 	hotThreads(hotThreadsParam), timeout(timeoutParam) {
 	for (int i = 0; i < hotThreads; i++){
 		Worker* worker = new Worker();
-		boost::thread* thread = new boost::thread(boost::bind(&Worker::run, worker));
-
-		workers.push_back(std::make_pair(thread, worker));
+		boost::thread thread(boost::bind(&Worker::run, worker));
+		worker->thread.swap(thread);
+		//@TODO start here
+		workers.push_back(worker);
 	}
-}
-
-Pool::~Pool(){
-	printf("start destrunction\n");
-	for (std::list<std::pair<boost::thread*, Worker*> >::iterator it = this->workers.begin();  //@todo use C++x11?
-		it != this->workers.end(); ++it){
-		(*(it)).first->interrupt(); //keep claim and kill it with fire
-		delete (*(it)).second;
-	}
-	printf("end destrunction\n");
 }
 
 template <typename T>
 Future<T> Pool::submit(const Callable<T>* task){
-	return (*workers.begin()).second->setTask(task);
+	return (*workers.begin())->setTask(task);
 }
+
+Pool::~Pool(){
+	printf("start destrunction\n");
+	for (std::list<Worker*>::iterator it = this->workers.begin();  //@todo use C++x11?
+		it != this->workers.end(); ++it){
+		printf("prepare to interrupt\n");
+		delete *(it);
+		//while(!(*(it))->interrupted());
+		//(*(it)).second->cond.notify_all();
+	}
+	printf("end destrunction\n");
+}
+
+
 
 template <typename T>
 Future<T>::Future(int id):done(false), canceled(false), taskId(id){}
@@ -99,8 +108,17 @@ template <typename T>
 Future<T> Worker::setTask(const Callable<T>* task){
 	waiting = false;
 	this->currentTask = (Callable<void*>*)task;
-	cond.notify_one();
+	cond->notify_one();
 	return Future<T>(task->getTaskId());
+}
+
+
+Worker::Worker(){
+	mtx_ = new boost::unique_lock<boost::mutex>(); //@fixme memory leak!!!!
+	cond = new boost::condition_variable(); //@fixme memory leak!!!!
+}
+
+Worker::~Worker(){
 }
 
 void Worker::run(){
@@ -108,7 +126,7 @@ void Worker::run(){
 		printf("worker run 1\n");
 		while (this->currentTask != 0){
 			printf("worker - go wait\n");
-			cond.wait(mtx_);
+			cond->wait(*mtx_);
 		}
 		void* ret = this->currentTask->call();
 	}
