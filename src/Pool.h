@@ -2,6 +2,7 @@
 #define POOL_H
 #include <list>
 #include "stdio.h"
+#include <boost/thread/thread.hpp>
 
 template <typename T>
 class Future{
@@ -13,7 +14,7 @@ public:
 	void cancel();
 	T get();
 private:
-	bool done; //can't set isDone????
+	bool done; //can't name to isDone????
 	bool canceled;
 	const int taskId;
 };
@@ -37,13 +38,14 @@ class Worker{
 public:
 	template <typename T>
 	Future<T> setTask(const Callable<T>* task);
-	template <typename T>
-	inline Callable<T>* getCurrentTask(){return currentTask;}
+	inline Callable<void*>* getCurrentTask(){return currentTask;}
 	inline bool isWaiting() const {return waiting;}
 	void run();
 private:
 	bool waiting;
 	Callable<void*>* currentTask;
+	boost::unique_lock<boost::mutex> mtx_;
+	boost::condition_variable cond;
 };
 
 
@@ -67,7 +69,9 @@ private:
 Pool::Pool(const int hotThreadsParam, const double timeoutParam): 
 	hotThreads(hotThreadsParam), timeout(timeoutParam) {
 	for (int i = 0; i < hotThreads; i++){
-		workers.push_back(new Worker());
+		Worker* worker = new Worker();
+		boost::thread(boost::bind(&Worker::run, worker));
+		workers.push_back(worker);
 	}
 }
 
@@ -83,8 +87,21 @@ Future<T>::Future(int id):done(false), canceled(false), taskId(id){}
 
 template <typename T>
 Future<T> Worker::setTask(const Callable<T>* task){
+	waiting = false;
 	this->currentTask = (Callable<void*>*)task;
+	cond.notify_one();
 	return Future<T>(task->getTaskId());
+}
+
+void Worker::run(){
+	while(true){
+		printf("worker run 1\n");
+		while (this->currentTask != 0){
+			printf("worker - go wait\n");
+			cond.wait(mtx_);
+		}
+		void* ret = this->currentTask->call();
+	}
 }
 
 

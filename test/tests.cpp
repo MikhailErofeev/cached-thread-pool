@@ -3,6 +3,7 @@
 #include <boost/thread/thread.hpp>
 #include <boost/thread/xtime.hpp>
 #include "../src/Pool.h"
+#include "stdio.h"
 
 BOOST_AUTO_TEST_CASE( boost_tests_test ) 
 {
@@ -14,6 +15,7 @@ class StateChanger: public Callable<int>{
     int state;
     virtual int call(){
         state = 1;
+        printf("stateChanger called\n");
         return state;
     }
 };
@@ -23,6 +25,7 @@ BOOST_AUTO_TEST_CASE( boost_threads_test ) {
     boost::thread thread =  boost::thread(boost::bind(&StateChanger::call, &stateChanger));
     thread.join();
     BOOST_CHECK_EQUAL(1, stateChanger.state);
+    BOOST_CHECK_EQUAL(0 , stateChanger.getTaskId());
 }
 
 
