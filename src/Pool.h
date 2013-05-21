@@ -5,10 +5,14 @@
 #include <boost/thread/thread.hpp>
 #include <utility> 
 
+
+class Worker;
+
 template <typename T>
 class Future{
 public:
-	Future(int);
+	Future(int id, Worker* workerPrm):
+			done(false), canceled(false), taskId(id), worker(workerPrm){}
 	bool isDone() const {return done;}
 	bool isCanceled() const {return canceled;}
 	int getTaskId() const {return taskId;}
@@ -18,6 +22,7 @@ private:
 	bool done;
 	bool canceled;
 	const int taskId;
+	const Worker* worker;
 };
 
 template <typename T>
@@ -47,11 +52,12 @@ public:
 	bool deleted;
 	boost::condition_variable* cond;
 	void cleans();
+	void* ret;	
+	boost::mutex* mtx;
+	boost::unique_lock<boost::mutex>* unique_lock;
 private:
 	bool waiting;
 	Callable<void*>* currentTask;
-	boost::unique_lock<boost::mutex>* unique_lock;
-	boost::mutex* mtx;
 };
 
 
@@ -103,16 +109,13 @@ Pool::~Pool(){
 }
 
 
-
-template <typename T>
-Future<T>::Future(int id):done(false), canceled(false), taskId(id){}
-
 template <typename T>
 Future<T> Worker::setTask(const Callable<T>* task){
 	waiting = false;
 	this->currentTask = (Callable<void*>*)task;
-	cond->notify_one();
-	return Future<T>(task->getTaskId());
+	cond->notify_all();
+	printf("notify\n");
+	return Future<T>(task->getTaskId(), this);
 }
 
 
@@ -121,6 +124,7 @@ Worker::Worker(){
 	unique_lock = new boost::unique_lock<boost::mutex>(*mtx);
 	cond = new boost::condition_variable();
 	deleted = false;
+	ret = (void*)100;
 }
 
 
@@ -134,15 +138,33 @@ void Worker::cleans(){
 void Worker::run(){
 	while(true){
 		while (this->currentTask != 0){
-			printf("start waiting\n");
+			printf("start sleeping\n");
 			cond->wait(*unique_lock);
-			printf("stop waiting\n");
+			printf("stop sleeping\n");
 			if (deleted)
 				cleans();
 				return;
 		}
-		void* ret = this->currentTask->call();
+		mtx->lock();
+		ret = this->currentTask->call();
+		cond->notify_all();
+		mtx->unlock();
 	}
+}
+
+template<typename T>
+T Future<T>::get(){
+	
+	void* ret = this->worker->ret;
+	while((T)ret == 100){
+		this->worker->mtx->lock();
+		//printf("start waiting for res\n");
+		//this->worker->cond->wait(*(this->worker->unique_lock));
+		this->worker->mtx->unlock();
+		ret = this->worker->ret;
+	}
+	printf("get called %d \n", (T)ret);
+	return (T)ret;
 }
 
 
