@@ -13,8 +13,9 @@ BOOST_AUTO_TEST_CASE( boost_tests_test )
 class StateChanger: public Callable<int>{
 	public:
     int state;
+    StateChanger(int ret):state(ret){}
+    StateChanger():state(5){}
     virtual int call(){
-        state = 5;
         printf("stateChanger %d called\n", getTaskId());
         return state;
     }
@@ -46,9 +47,14 @@ BOOST_AUTO_TEST_CASE( get_result ) {
     printf("-----------get_result---------------\n");
     Pool pool(1, 5);
     BOOST_CHECK_EQUAL(1, pool.getHotThreads());
-    StateChanger* stateChanger = new StateChanger();
-
-    Future<int> future = pool.submit(stateChanger);
-    BOOST_CHECK_EQUAL(5, future.get());
+    for (int i = 0; i < 10; i++){
+        StateChanger* stateChanger = new StateChanger();
+        Future<int> future = pool.submit(stateChanger);
+        BOOST_CHECK_EQUAL(5, future.get());
+        StateChanger* stateChanger2 = new StateChanger(i);
+        Future<int> future2 = pool.submit(stateChanger2);
+        BOOST_CHECK_EQUAL(i, future2.get());
+        delete stateChanger, stateChanger2;
+    }
     printf("stop test\n");    
 }
