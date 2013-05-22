@@ -25,7 +25,7 @@ private:
 	bool done;
 	bool canceled;
 	const int taskId;
-	const Worker* worker;
+	Worker* const worker;
 };
 
 template <typename T>
@@ -50,6 +50,7 @@ public:
 	Future<T> setTask(const Callable<T>* task);
 	Callable<void*>* getCurrentTask(){return currentTask;}
 	bool isWaiting() const {return waiting;}
+	void setWaiting(bool waiting){this->waiting = waiting;}
 	void run();
 	boost::thread thread;
 	bool deleted;
@@ -76,6 +77,8 @@ private:
 	std::list<Worker* > workers;
 	const int hotThreads;
 	const double timeout;
+	std::list<Callable<void*>* > tasks;
+	boost::mutex* queueMtx;
 };
 
 
@@ -90,17 +93,27 @@ Pool::Pool(const int hotThreadsParam, const double timeoutParam):
 		//@TODO start here
 		workers.push_back(worker);
 	}
+	queueMtx = new boost::mutex();
 }
 
 template <typename T>
 Future<T> Pool::submit(const Callable<T>* task){
-	return (*workers.begin())->setTask(task);
+	scoped_lock lock(*queueMtx);
+	for (std::list<Worker*>::iterator it = this->workers.begin();  //@todo use C++x11?
+		it != this->workers.end(); 
+		++it){
+		if (!(*it)->isWaiting()){
+			return (*it)->setTask(task);
+		}
+	}
+	return (*workers.begin())->setTask(task); //@TODO start here, add to queue
 }
 
 Pool::~Pool(){
 	printf("start destrunction\n");
 	for (std::list<Worker*>::iterator it = this->workers.begin();  //@todo use C++x11?
-		it != this->workers.end(); ++it){
+		it != this->workers.end(); 
+		++it){
 		delete &(*(it))->thread;
 		(*(it))->deleted = true;
 		(*(it))->task_cond->notify_all();
@@ -124,13 +137,14 @@ Worker::Worker(){
 	mtx = new boost::mutex();
 	task_cond = new boost::condition_variable();
 	deleted = false;
-	ret = (void*)100;
+	ret = (void*)0;
 	currentTask = 0;
 }
 
 
 void Worker::cleans(){
 	printf ("run cleans\n");
+	task_cond->notify_all();
 	delete task_cond;
 	delete mtx;
 }
@@ -143,7 +157,7 @@ void Worker::run(){
 			task_cond->wait(lock);
 			printf("stop sleeping\n");
 			if (deleted){
-				cleans();
+				//cleans(); @FIXME run Worker cleans after end of thread!!!!
 				return;
 			}
 		}
@@ -151,8 +165,8 @@ void Worker::run(){
 		printf("start calc\n");
 		ret = this->currentTask->call();
 		this->currentTask = 0;
-		task_cond->notify_all();
 		printf("end calc, notify\n");
+		task_cond->notify_all();
 		// mtx->unlock();
 	}
 }
@@ -165,7 +179,8 @@ T Future<T>::get(){
 		this->worker->task_cond->wait(lock);
 	}
 	void* ret = this->worker->ret;
-	printf("get called %d \n", (T)ret);
+	this->worker->setWaiting(true);
+	//printf("get called %d \n", (T)ret);	
 	return (T)ret;
 }
 
