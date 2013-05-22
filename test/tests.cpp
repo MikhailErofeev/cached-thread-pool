@@ -20,7 +20,7 @@ class StateChanger: public Callable<int>{
     }
 };
 
-BOOST_AUTO_TEST_CASE( boost_threads_test ) {
+BOOST_AUTO_TEST_CASE( boost_threads_test ) {    
 	StateChanger stateChanger;
     boost::thread thread =  boost::thread(boost::bind(&StateChanger::call, &stateChanger));
     thread.join();
@@ -29,6 +29,7 @@ BOOST_AUTO_TEST_CASE( boost_threads_test ) {
 
 
 BOOST_AUTO_TEST_CASE(pool_trivial) {
+    printf("-----------pool_trivial---------------\n");
     Pool pool(1, 5);
     BOOST_CHECK_EQUAL(1, pool.getHotThreads());
     StateChanger* stateChanger = new StateChanger();
@@ -42,7 +43,7 @@ BOOST_AUTO_TEST_CASE(pool_trivial) {
 
 
 BOOST_AUTO_TEST_CASE( get_result ) {
-    printf("--------------------------\n");
+    printf("-----------get_result---------------\n");
     Pool pool(1, 5);
     BOOST_CHECK_EQUAL(1, pool.getHotThreads());
     StateChanger* stateChanger = new StateChanger();
