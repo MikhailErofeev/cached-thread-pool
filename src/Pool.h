@@ -15,17 +15,24 @@ template <typename T>
 class Future{
 public:
 	Future(int id, Worker* workerPrm):
-			done(false), canceled(false), taskId(id), worker(workerPrm){}
+			done(false), canceled(false), taskId(id), worker(workerPrm){
+		workerWaitingMtx = new boost::mutex();
+		waitingCondition = new boost::condition_variable();
+	}
 	bool isDone() const {return done;}
 	bool isCanceled() const {return canceled;}
 	int getTaskId() const {return taskId;}
 	void cancel();
+	void setWorker(Worker* worker); //@FIXME FUCK FUCK FUCK
 	T get();
 private:
 	bool done;
 	bool canceled;
 	const int taskId;
-	Worker* const worker;
+	Worker* worker;
+	boost::mutex* workerWaitingMtx;
+	boost::condition_variable* waitingCondition;
+	void waitingForWorker();
 };
 
 template <typename T>
@@ -63,6 +70,16 @@ private:
 	bool waiting;
 };
 
+template<typename T>
+class ExecutionUnit{
+public:
+	Future<T>* future;
+	Callable<T>* task;
+	Worker* worker;
+	ExecutionUnit(Future<T>* futureParam, Callable<T>* taskParam, Worker* workerParam):
+		future(futureParam), task(taskParam), worker(workerParam){}
+};
+
 
 
 class Pool{
@@ -70,14 +87,14 @@ public:
 	Pool(const int hotThreads, const double timeout);
 	virtual ~Pool();
 	template <typename T>
-	Future<T> submit(const Callable<T>* c);
+	Future<T> submit(Callable<T>* c);
 	int getHotThreads() const {return hotThreads;}
 	double getTimeout() const {return timeout;}
 private:
 	std::list<Worker* > workers;
 	const int hotThreads;
 	const double timeout;
-	std::list<Callable<void*>* > tasks;
+	std::list<void* > tasksQueue;
 	boost::mutex* queueMtx;
 };
 
@@ -97,28 +114,32 @@ Pool::Pool(const int hotThreadsParam, const double timeoutParam):
 }
 
 template <typename T>
-Future<T> Pool::submit(const Callable<T>* task){
+Future<T> Pool::submit(Callable<T>* task){
 	scoped_lock lock(*queueMtx);
-	for (std::list<Worker*>::iterator it = this->workers.begin();  //@todo use C++x11?
+	for (std::list<Worker*>::iterator it = this->workers.begin();
 		it != this->workers.end(); 
 		++it){
 		if (!(*it)->isWaiting()){
 			return (*it)->setTask(task);
 		}
 	}
-	return (*workers.begin())->setTask(task); //@TODO start here, add to queue
+	Worker* none = 0;
+	Future<T>* future = new Future<T>(task->getTaskId(), none);
+		ExecutionUnit<T>* unit = new ExecutionUnit<T>(future, task, none);
+	this->tasksQueue.push_back(unit);
+	return (*workers.begin())->setTask(task);
 }
 
 Pool::~Pool(){
-	printf("start destrunction\n");
-	for (std::list<Worker*>::iterator it = this->workers.begin();  //@todo use C++x11?
+	printf("start pool destrunction\n");
+	for (std::list<Worker*>::iterator it = this->workers.begin();
 		it != this->workers.end(); 
 		++it){
 		delete &(*(it))->thread;
 		(*(it))->deleted = true;
 		(*(it))->task_cond->notify_all();
 	}
-	printf("end destrunction\n");
+	printf("end pool destrunction\n");
 }
 
 
@@ -143,7 +164,7 @@ Worker::Worker(){
 
 
 void Worker::cleans(){
-	printf ("run cleans\n");
+	printf ("run worker\n");
 	task_cond->notify_all();
 	delete task_cond;
 	delete mtx;
@@ -153,9 +174,9 @@ void Worker::run(){
 	while(true){
 		scoped_lock lock(*mtx);
 		while (this->currentTask == 0){
-			printf("start sleeping\n");
+			printf("worker start sleeping\n");
 			task_cond->wait(lock);
-			printf("stop sleeping\n");
+			printf("worker stop sleeping\n");
 			if (deleted){
 				//cleans(); @FIXME run Worker cleans after end of thread!!!!
 				return;
@@ -172,7 +193,22 @@ void Worker::run(){
 }
 
 template<typename T>
-T Future<T>::get(){
+void Future<T>::setWorker(Worker* worker){
+	this->worker = worker;
+	waitingCondition->notify_one();
+}
+
+template<typename T>
+void Future<T>::waitingForWorker(){
+	scoped_lock lock(*workerWaitingMtx);
+	while(worker == 0){
+		waitingCondition->wait(lock);
+	}
+}
+
+template<typename T>
+T Future<T>::get(){	
+	waitingForWorker();
 	scoped_lock lock(*(this->worker->mtx));
 	while(this->worker->currentTask != 0){
 		printf("start waiting for res\n");
