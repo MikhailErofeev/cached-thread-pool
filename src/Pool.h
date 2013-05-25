@@ -129,7 +129,6 @@ Future<T>* Pool::submit(Callable<T>* task){
 	}
 	
 	Future<T>* future = new Future<T>(task->getTaskId(), worker);
-	printf("create futute in submit %p\n", future);
 	ExecutionUnit<T>* unit = new ExecutionUnit<T>(future, task, worker);
 	if (worker != 0){
 		printf("set free worker\n");
@@ -172,7 +171,6 @@ Worker::Worker(Pool* poolPrm): pool(poolPrm){
 	ret = (void*)0;
 	executionUnit = 0;
 	waiting = true;
-	printf("create futute in consrt %p\n", this);
 }
 
 
