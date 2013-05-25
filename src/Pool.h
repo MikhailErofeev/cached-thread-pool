@@ -210,15 +210,6 @@ void Future<T>::setWorker(Worker* worker){
 }
 
 template<typename T>
-void Future<T>::waitingForWorker(){
-	scoped_lock lock(*workerWaitingMtx);
-	while(worker == 0){
-		waitingCondition->wait(lock);
-	}
-}
-
-
-template<typename T>
 void Future<T>::setResult(void* result){
 	scoped_lock lock(*workerWaitingMtx);
 	ret = (T)result;
@@ -237,5 +228,12 @@ T Future<T>::get(){
 	return ret;
 }
 
+template<typename T>
+void Future<T>::waitingForWorker(){
+	scoped_lock lock(*workerWaitingMtx);
+	while(worker == 0){
+		waitingCondition->wait(lock);
+	}
+}
 
 #endif
