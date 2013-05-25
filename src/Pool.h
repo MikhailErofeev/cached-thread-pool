@@ -10,6 +10,7 @@
 typedef boost::unique_lock<boost::mutex> scoped_lock;
 
 class Worker;
+class Pool;
 
 template <typename T>
 class Future{
@@ -24,7 +25,7 @@ public:
 	int getTaskId() const {return taskId;}
 	void cancel();
 	void setWorker(Worker* worker); //@FIXME FUCK FUCK FUCK
-	void setResult(T result); //@FIXME FUCK FUCK FUCK
+	void setResult(void* result); //@FIXME FUCK FUCK FUCK
 	T get();
 private:
 	bool done;
@@ -52,26 +53,6 @@ private:
 	const int taskId;
 };
 
-class Worker{
-public:
-	Worker();
-	template <typename T>
-	void setTask(const Callable<T>* task);
-	Callable<void*>* getCurrentTask(){return currentTask;}
-	bool isWaiting() const {return waiting;}
-	void setWaiting(bool waiting){this->waiting = waiting;}
-	void run();
-	boost::thread thread;
-	bool deleted;
-	boost::condition_variable* task_cond;
-	void cleans();
-	void* ret;	
-	boost::mutex* mtx;
-	Callable<void*>* currentTask;
-private:
-	bool waiting;
-};
-
 template<typename T>
 class ExecutionUnit{
 public:
@@ -82,6 +63,25 @@ public:
 		future(futureParam), task(taskParam), worker(workerParam){}
 };
 
+class Worker{
+public:
+	Worker(Pool* poolPrm);
+	template <typename T>
+	void setTask(const ExecutionUnit<T>*);
+	bool isWaiting() const {return waiting;}
+	void setWaiting(bool waiting){this->waiting = waiting;}
+	void run();
+	boost::thread thread;
+	bool deleted;
+	boost::condition_variable* task_cond;
+	void cleans();
+	void* ret; //@FIXME don't store it here - store in Future obj!
+	Pool* pool;
+	boost::mutex* mtx;
+	ExecutionUnit<void*>* executionUnit;
+private:
+	bool waiting;
+};
 
 
 class Pool{
@@ -89,7 +89,7 @@ public:
 	Pool(const int hotThreads, const double timeout);
 	virtual ~Pool();
 	template <typename T>
-	Future<T> submit(Callable<T>* c);
+	Future<T>* submit(Callable<T>* c);
 	int getHotThreads() const {return hotThreads;}
 	double getTimeout() const {return timeout;}
 private:
@@ -106,7 +106,7 @@ private:
 Pool::Pool(const int hotThreadsParam, const double timeoutParam): 
 	hotThreads(hotThreadsParam), timeout(timeoutParam) {
 	for (int i = 0; i < hotThreads; i++){
-		Worker* worker = new Worker();
+		Worker* worker = new Worker(this);
 		boost::thread thread(boost::bind(&Worker::run, worker));
 		worker->thread.swap(thread);
 		//@TODO start here
@@ -116,7 +116,7 @@ Pool::Pool(const int hotThreadsParam, const double timeoutParam):
 }
 
 template <typename T>
-Future<T> Pool::submit(Callable<T>* task){
+Future<T>* Pool::submit(Callable<T>* task){
 	scoped_lock lock(*queueMtx);
 	Worker* worker = 0;
 	printf("choose worker for task %d\n", task->getTaskId());
@@ -129,16 +129,17 @@ Future<T> Pool::submit(Callable<T>* task){
 	}
 	
 	Future<T>* future = new Future<T>(task->getTaskId(), worker);
+	printf("create futute in submit %p\n", future);
 	ExecutionUnit<T>* unit = new ExecutionUnit<T>(future, task, worker);
 	if (worker != 0){
 		printf("set free worker\n");
-		worker->setTask(unit->task);
+		worker->setTask(unit);
 	}else{
 		printf ("add to queue, return nullable future\n");
 		this->tasksQueue.push_back(unit);
 	}
 	
-	return *future;
+	return future;
 }
 
 Pool::~Pool(){
@@ -155,22 +156,23 @@ Pool::~Pool(){
 
 
 template <typename T>
-void Worker::setTask(const Callable<T>* task){
+void Worker::setTask(const ExecutionUnit<T>* execUnit){
 	scoped_lock lock(*mtx);
 	waiting = false;
-	this->currentTask = (Callable<void*>*)task;
+	this->executionUnit = (ExecutionUnit<void*>*)execUnit;
 	task_cond->notify_all();
 	printf("task setted. notify\n");
 }
 
 
-Worker::Worker(){
+Worker::Worker(Pool* poolPrm): pool(poolPrm){
 	mtx = new boost::mutex();
 	task_cond = new boost::condition_variable();
 	deleted = false;
 	ret = (void*)0;
-	currentTask = 0;
+	executionUnit = 0;
 	waiting = true;
+	printf("create futute in consrt %p\n", this);
 }
 
 
@@ -184,7 +186,7 @@ void Worker::cleans(){
 void Worker::run(){
 	while(true){
 		scoped_lock lock(*mtx);
-		while (this->currentTask == 0){
+		while (this->executionUnit == 0){
 			printf("worker start sleeping\n");
 			task_cond->wait(lock);
 			printf("worker stop sleeping\n");
@@ -195,8 +197,9 @@ void Worker::run(){
 		}
 		printf("start calc\n");
 		setWaiting(false);
-		ret = this->currentTask->call();
-		this->currentTask = 0;
+		ret = this->executionUnit->task->call();
+		this->executionUnit->future->setResult(ret);
+		this->executionUnit = 0;
 		printf("end calc, notify\n");
 		task_cond->notify_all();
 	}
@@ -218,28 +221,21 @@ void Future<T>::waitingForWorker(){
 
 
 template<typename T>
-void Future<T>::setResult(T result){
+void Future<T>::setResult(void* result){
 	scoped_lock lock(*workerWaitingMtx);
-	done = true;
-	ret = result;
+	ret = (T)result;
+	this->done = true;
 	this->worker->setWaiting(true);
+	this->waitingCondition->notify_all();
 }
 
 template<typename T>
 T Future<T>::get(){	
 	waitingForWorker();
-	if (done){
-		return ret;
+	scoped_lock lock(*workerWaitingMtx);
+	while (!isDone()) {
+		this->waitingCondition->wait(lock);
 	}
-	scoped_lock lock(*(this->worker->mtx));
-	while(this->worker->currentTask != 0){
-		printf("start waiting for res\n");
-		this->worker->task_cond->wait(lock);
-	}
-	ret = (T)this->worker->ret;
-	this->worker->setWaiting(true);
-	done = true;
-	//printf("get called %d \n", (T)ret);	
 	return ret;
 }
 
