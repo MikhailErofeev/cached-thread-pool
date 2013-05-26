@@ -151,6 +151,16 @@ BOOST_AUTO_TEST_CASE( cancel_tasks ) {
         boost::this_thread::sleep( boost::posix_time::milliseconds(300));
         BOOST_CHECK_EQUAL(false, task->over);
     }
+    
+    MsSleeper* task = new MsSleeper(1000);
+    Future<int>* future = pool.submit(task);   
+    BOOST_CHECK_EQUAL(false, future->isDone());
+    BOOST_CHECK_EQUAL(false, future->isCanceled());
+    boost::this_thread::sleep( boost::posix_time::milliseconds(300));
+    future->cancel();
+    BOOST_CHECK_EQUAL(1, pool.getActualWorkersCount());
+    BOOST_CHECK_EQUAL(true, future->isCanceled());
+    BOOST_CHECK_EQUAL(false, task->over);
     printf("stop test\n"); 
 }
 

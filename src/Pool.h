@@ -105,6 +105,7 @@ public:
 	void tryToRemoveWorker(Worker* worker);
 private:
 	std::list<Worker* > workers;
+	void startNewWorker();
 	const int hotThreads;
 	const int maxThreads;
 	const int timeout;
@@ -121,18 +122,24 @@ Pool::Pool(const int hotThreadsParam, const int maxThreadsParam, const double ti
 	queue_notifier = new boost::condition_variable();
 	pool_deletition_notifier = new boost::condition_variable();
 	for (int i = 0; i < hotThreads; i++){
-		Worker* worker = new Worker(this);
-		boost::thread thread(boost::bind(&Worker::run, worker));
-		worker->thread.swap(thread);
-		//@TODO start here
-		workers.push_back(worker);
+		startNewWorker();
 	}
 }
 
+void Pool::startNewWorker(){
+	Worker* worker = new Worker(this);
+	boost::thread thread(boost::bind(&Worker::run, worker));
+	worker->thread.swap(thread);
+	workers.push_back(worker);
+}
+
 void Pool::tryToRemoveWorker(Worker* worker){
-	if (getActualWorkersCount() > hotThreads || worker->deleted){
+	if (getActualWorkersCount() > hotThreads || worker->deleted){		
 		worker->deleted = true;
 		workers.remove(worker);
+		if (worker->executionUnit != 0 && worker->executionUnit->future->isCanceled()){
+			startNewWorker();
+		}
 	}
 }
 
@@ -141,11 +148,7 @@ Future<T>* Pool::submit(Callable<T>* task){
 	printf("start submit\n");
 	scoped_lock lock(*queueMtx);
 	if (!this->tasksQueue.empty() && this->workers.size() < maxThreads){
-		Worker* worker = new Worker(this);
-		boost::thread thread(boost::bind(&Worker::run, worker));
-		worker->thread.swap(thread);
-		//@TODO start here
-		workers.push_back(worker);
+		startNewWorker();
 	}
 	Worker* worker = 0;
 	Future<T>* future = new Future<T>(task->getTaskId(), worker);
@@ -174,11 +177,8 @@ Pool::~Pool(){
 	scoped_lock deletionLock(*(deletingMtx));
 	printf("start pool destrunction. workers = %d. tasks = %d\n", workers.size(), tasksQueue.size());
 	for (std::list<Worker*>::iterator it = this->workers.begin();
-		it != this->workers.end(); 
-		++it){
-		// delete &(*(it))->thread; @TODO deleting workers
+		it != this->workers.end();  ++it){
 		(*(it))->deleted = true;
-		//(*(it))->task_cond->notify_all();
 	}
 	queue_notifier->notify_all();
 	while (workers.size() > 0){
