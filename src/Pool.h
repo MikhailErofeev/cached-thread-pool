@@ -126,7 +126,6 @@ Future<T>* Pool::submit(Callable<T>* task){
 		it != this->workers.end(); 	++it){			
 		if ((*it)->isWaiting()){
 			worker = (*it);
-			 //(*it)->setTask(task);
 		}
 	}
 	
@@ -230,7 +229,7 @@ void Worker::run(){
 		setWaiting(false);
 		ret = this->executionUnit->task->call();
 		this->executionUnit->future->setResult(ret);
-		printf("end calc, notify\n");
+		printf("end calc\n");
 	}
 }
 
@@ -247,16 +246,24 @@ void Future<T>::setResult(void* result){
 	this->worker->executionUnit = 0;
 	this->done = true;
 	this->worker->setWaiting(true);
-	this->waitingCondition->notify_all();
+	printf ("set ret and notify future. ret = %d\n", ret);
+	this->waitingCondition->notify_all();	
 }
 
 template<typename T>
 T Future<T>::get(){	
+	printf (">>start getting\n");
+	if (isDone()){
+		return ret;
+	}
 	waitingForWorker();
+	printf (">>worker waiting ok\n");
 	scoped_lock lock(*workerWaitingMtx);
 	while (!isDone()) {
+		printf (">>waiting for ret start\n");
 		this->waitingCondition->wait(lock);
 	}
+	printf (">>res resived\n");
 	return ret;
 }
 

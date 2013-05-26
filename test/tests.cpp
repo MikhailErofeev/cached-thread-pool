@@ -16,7 +16,7 @@ class StateChanger: public Callable<int>{
     StateChanger(int ret):state(ret){}
     StateChanger():state(5){}
     virtual int call(){
-        printf("stateChanger %d called\n", getTaskId());
+        printf("stateChanger %d called. ret = %d\n", getTaskId(), state);
         return state;
     }
 };
@@ -74,6 +74,7 @@ BOOST_AUTO_TEST_CASE( queue ) {
     BOOST_CHECK_EQUAL(2, future2->get());
     BOOST_CHECK_EQUAL(3, future3->get());
     BOOST_CHECK_EQUAL(4, future4->get());
+    printf("queue 4  - ok\n");    
     BOOST_CHECK_EQUAL(5, future5->get());
     BOOST_CHECK_EQUAL(6, future6->get());
     BOOST_CHECK_EQUAL(7, future7->get());
