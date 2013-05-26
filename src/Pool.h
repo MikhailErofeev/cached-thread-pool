@@ -96,16 +96,17 @@ public:
 	template <typename T>
 	Future<T>* submit(Callable<T>* c);
 	int getHotThreads() const {return hotThreads;}
-	double getTimeout() const {return timeout;}
+	int getTimeout() const {return timeout;}
 	int getActualWorkersCount() const {return workers.size();}
 	ExecutionUnit<void*>* findTask();
 	boost::condition_variable* queue_notifier;
 	boost::mutex* queueMtx;
+	void tryToRemoveWorker(Worker* worker);
 private:
 	std::list<Worker* > workers;
 	const int hotThreads;
 	const int maxThreads;
-	const double timeout;
+	const int timeout;
 	std::list<void* > tasksQueue;
 };
 
@@ -122,6 +123,14 @@ Pool::Pool(const int hotThreadsParam, const int maxThreadsParam, const double ti
 		worker->thread.swap(thread);
 		//@TODO start here
 		workers.push_back(worker);
+	}
+}
+
+void Pool::tryToRemoveWorker(Worker* worker){
+	if (getActualWorkersCount() > hotThreads){
+		worker->deleted = true;
+		workers.remove(worker);
+		printf("remove worker\n");
 	}
 }
 
@@ -214,8 +223,13 @@ void Worker::waitForTask(){
 	printf("worker %d go to find task\n");
 	this->executionUnit =  pool->findTask();
 	while (this->executionUnit == 0){
+		boost::system_time tAbsoluteTime = 
+			boost::get_system_time() + boost::posix_time::milliseconds(pool->getTimeout() * 1000);
 		printf("worker %d start sleeping\n", workerId);
-		this->pool->queue_notifier->wait(queueLock);
+		this->pool->queue_notifier->timed_wait(queueLock, tAbsoluteTime);
+		if (boost::get_system_time() >= tAbsoluteTime){
+			pool->tryToRemoveWorker(this);
+		}
 		if (deleted){
 			//clean();
 			printf("time to die worker %d\n", workerId);
