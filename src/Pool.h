@@ -180,7 +180,7 @@ void Worker::setTask(const ExecutionUnit<T>* execUnit){
 	waiting = false;
 	this->executionUnit = (ExecutionUnit<void*>*)execUnit;
 	task_cond->notify_all();
-	printf("task setted. notify\n");
+	printf("task setted to %d. notify\n", workerId);
 }
 
 
