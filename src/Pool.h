@@ -6,7 +6,6 @@
 #include <boost/thread/mutex.hpp>
 #include <utility> 
 
-
 typedef boost::unique_lock<boost::mutex> scoped_lock;
 
 class Worker;
@@ -19,7 +18,6 @@ public:
 			done(false), canceled(false), taskId(id), worker(workerPrm){
 		workerWaitingMtx = new boost::mutex();
 		waitingCondition = new boost::condition_variable();
-		printf("constuct workerWaitingMtx mutex %p\n", workerWaitingMtx);
 	}
 	bool isDone() const {return done;}
 	bool isCanceled() const {return canceled;}
@@ -83,6 +81,12 @@ public:
 private:
 	bool waiting;
 	void waitForTask();
+	int generateWorkerId(){
+		static volatile int N = 0;
+		return N++;
+	}
+	
+	const int workerId;
 };
 
 
@@ -128,6 +132,7 @@ Future<T>* Pool::submit(Callable<T>* task){
 		it != this->workers.end(); 	++it){			
 		if ((*it)->isWaiting()){
 			worker = (*it);
+			break;
 		}
 	}
 	
@@ -179,13 +184,14 @@ void Worker::setTask(const ExecutionUnit<T>* execUnit){
 }
 
 
-Worker::Worker(Pool* poolPrm): pool(poolPrm){
+Worker::Worker(Pool* poolPrm): pool(poolPrm), workerId(generateWorkerId()){
 	mtx = new boost::mutex();
 	task_cond = new boost::condition_variable();
 	deleted = false;
 	ret = (void*)0;
 	executionUnit = 0;
 	waiting = true;
+	printf("construct worker %d\n", workerId);
 }
 
 
@@ -199,10 +205,9 @@ void Worker::cleans(){
 void Worker::run(){	
 	while(true){
 		if (this->executionUnit == 0){
-			printf("worker start find task\n");
+			printf("worker %d start find task\n", workerId);
 			waitForTask();
 			if (deleted){
-				printf("time to worker die\n");
 				return;
 			}
 		}
@@ -232,12 +237,12 @@ void Worker::waitForTask(){
 		scoped_lock lock(*mtx);
 		while (this->executionUnit == 0){
 			// printf("pool size: %d\n", pool->tasksQueue.size());
-			printf("worker start sleeping\n");
+			printf("worker %d start sleeping\n", workerId);
 			task_cond->wait(lock);
 			printf("worker stop sleeping\n");
 			if (deleted){
 				//clean();
-				printf("time to worker die\n");
+				printf("time to worker %d die\n", workerId);
 				return;
 			}
 		}
@@ -252,9 +257,7 @@ void Future<T>::setWorker(Worker* worker){
 
 template<typename T>
 void Future<T>::setResult(void* result){
-	printf ("try to set lock %p\n", workerWaitingMtx);
 	scoped_lock lock(*workerWaitingMtx);
-	printf ("set lock ok\n");
 	ret = (T)result;
 	this->worker->executionUnit = 0;
 	this->done = true;
