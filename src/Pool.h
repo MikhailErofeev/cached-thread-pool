@@ -19,6 +19,7 @@ public:
 			done(false), canceled(false), taskId(id), worker(workerPrm){
 		workerWaitingMtx = new boost::mutex();
 		waitingCondition = new boost::condition_variable();
+		printf("constuct workerWaitingMtx mutex %p\n", workerWaitingMtx);
 	}
 	bool isDone() const {return done;}
 	bool isCanceled() const {return canceled;}
@@ -195,6 +196,25 @@ void Worker::cleans(){
 	delete mtx;
 }
 
+void Worker::run(){	
+	while(true){
+		if (this->executionUnit == 0){
+			printf("worker start find task\n");
+			waitForTask();
+			if (deleted){
+				printf("time to worker die\n");
+				return;
+			}
+		}
+		printf("start calc\n");
+		setWaiting(false);
+		ret = this->executionUnit->task->call();
+		printf("end calc\n");
+		this->executionUnit->future->setResult(ret);
+		printf("res setted\n");
+	}
+}
+
 void Worker::waitForTask(){
 	ExecutionUnit<void*>* exec;
 	{
@@ -217,26 +237,10 @@ void Worker::waitForTask(){
 			printf("worker stop sleeping\n");
 			if (deleted){
 				//clean();
+				printf("time to worker die\n");
 				return;
 			}
 		}
-	}
-}
-
-void Worker::run(){	
-	while(true){
-		if (this->executionUnit == 0){
-			printf("worker start find task\n");
-			waitForTask();
-			if (deleted){
-				return;
-			}
-		}
-		printf("start calc\n");
-		setWaiting(false);
-		ret = this->executionUnit->task->call();
-		this->executionUnit->future->setResult(ret);
-		printf("end calc\n");
 	}
 }
 
@@ -248,12 +252,14 @@ void Future<T>::setWorker(Worker* worker){
 
 template<typename T>
 void Future<T>::setResult(void* result){
+	printf ("try to set lock %p\n", workerWaitingMtx);
 	scoped_lock lock(*workerWaitingMtx);
+	printf ("set lock ok\n");
 	ret = (T)result;
 	this->worker->executionUnit = 0;
 	this->done = true;
 	this->worker->setWaiting(true);
-	printf ("set ret and notify future. ret = %d\n", ret);
+	printf ("set ret and notify future\n");
 	this->waitingCondition->notify_all();	
 }
 
@@ -270,7 +276,7 @@ T Future<T>::get(){
 		printf (">>waiting for ret start\n");
 		this->waitingCondition->wait(lock);
 	}
-	printf (">>res = %d resived\n", ret);
+	printf (">>res resived\n");
 	return ret;
 }
 
@@ -278,6 +284,7 @@ template<typename T>
 void Future<T>::waitingForWorker(){
 	scoped_lock lock(*workerWaitingMtx);
 	while(worker == 0){
+		printf (">>start waiting for worker\n");
 		waitingCondition->wait(lock);
 	}
 }

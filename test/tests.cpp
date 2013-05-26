@@ -82,12 +82,48 @@ BOOST_AUTO_TEST_CASE( queue ) {
 
 
 BOOST_AUTO_TEST_CASE( multy_workers ) {
-    printf("-----------multy_workers---------------\n");
-    Pool pool(20, 5);  
-    for (int i = 0; i < 10000; i++){
+    printf("-----------multy_workers-------------\n");
+    int workers = 5;
+    int tasks = 10;
+    Pool pool(workers, 5);  
+    for (int i = 0; i < tasks; i++){
         Future<int>* future = pool.submit(new StateChanger(i));
         BOOST_CHECK_EQUAL(i, future->get());
         delete future;
     }
     printf("stop test\n"); 
 }
+
+
+class SecSleeper: public Callable<float>{
+    public:
+    float sleepSecs;
+    SecSleeper(float secs):sleepSecs(secs){}
+    virtual float call(){
+        printf("sleeper %d called. will sleep for = %f\n", getTaskId(), sleepSecs);
+         boost::this_thread::sleep( boost::posix_time::milliseconds((int)sleepSecs*1000));
+        return sleepSecs;
+    }
+};
+
+BOOST_AUTO_TEST_CASE( bad_worker_waiting_mutex ) {
+    printf("-----------bad_worker_waiting_mutex-------------\n");
+    Pool pool(1, 5);  
+    Future<int>* futureInt = pool.submit(new StateChanger(2));
+    BOOST_CHECK_EQUAL(2, futureInt->get());
+    Future<float>* futureDouble = pool.submit(new SecSleeper(0.5));
+    BOOST_CHECK_EQUAL(0.5, futureDouble->get());
+    printf("stop test\n"); 
+}
+
+BOOST_AUTO_TEST_CASE( add_and_remove_workers ) {
+    printf("-----------add_and_remove_workers-------------\n");
+    Pool pool(2, 5);  
+    Future<float>* future = pool.submit(new SecSleeper(0.5));
+    BOOST_CHECK_EQUAL(0.5, future->get());
+    Future<float>* futureLong = pool.submit(new SecSleeper(1));
+    BOOST_CHECK_EQUAL(1, futureLong->get());
+    printf("stop test\n"); 
+}
+
+
