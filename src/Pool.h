@@ -5,6 +5,7 @@
 #include <boost/thread/thread.hpp>
 #include <boost/thread/mutex.hpp>
 #include <utility> 
+#include <iostream>
 
 typedef boost::unique_lock<boost::mutex> scoped_lock;
 
@@ -83,7 +84,7 @@ private:
 	void waitForTask();
 	int generateWorkerId(){
 		static volatile int N = 0;
-		return N++;
+		return (int)this;
 	}
 	
 	const int workerId;
@@ -204,15 +205,14 @@ void Worker::cleans(){
 
 void Worker::run(){	
 	while(true){
-		if (this->executionUnit == 0){
-			printf("worker %d start find task\n", workerId);
-			waitForTask();
-			if (deleted){
-				return;
-			}
+		printf("worker %d start find task\n", workerId);
+		waitForTask();
+		if (deleted){
+			return;
 		}
-		printf("start calc\n");
-		setWaiting(false);
+		scoped_lock lock(*mtx);
+		 std::cout << "worker "<< workerId << "  start calc in thread " << thread.get_id() << "\n";
+		//printf("worker %d start calc in thread %d\n", workerId, thread.get_id());
 		ret = this->executionUnit->task->call();
 		printf("end calc\n");
 		this->executionUnit->future->setResult(ret);
@@ -225,6 +225,7 @@ void Worker::waitForTask(){
 	{
 		scoped_lock queueLock(*pool->queueMtx);
 		if (this->executionUnit != 0){
+			setWaiting(false);
 			return;
 		}
 		 exec = pool->findTask();
@@ -233,19 +234,21 @@ void Worker::waitForTask(){
 		printf("worker start exec finded task\n");
 		this->executionUnit = exec;
 		exec->future->setWorker(this);
+		setWaiting(false);
 	}else{		
 		scoped_lock lock(*mtx);
 		while (this->executionUnit == 0){
 			// printf("pool size: %d\n", pool->tasksQueue.size());
 			printf("worker %d start sleeping\n", workerId);
 			task_cond->wait(lock);
-			printf("worker stop sleeping\n");
+			printf("worker %d stop sleeping\n", workerId);
 			if (deleted){
 				//clean();
 				printf("time to worker %d die\n", workerId);
 				return;
 			}
 		}
+		setWaiting(false);
 	}
 }
 
@@ -262,7 +265,7 @@ void Future<T>::setResult(void* result){
 	this->worker->executionUnit = 0;
 	this->done = true;
 	this->worker->setWaiting(true);
-	printf ("set ret and notify future\n");
+	printf ("worker set ret %d and notify future\n", ret);
 	this->waitingCondition->notify_all();	
 }
 
@@ -276,7 +279,7 @@ T Future<T>::get(){
 	printf (">>worker waiting ok\n");
 	scoped_lock lock(*workerWaitingMtx);
 	while (!isDone()) {
-		printf (">>waiting for ret start\n");
+		printf (">>start waiting for ret\n");
 		this->waitingCondition->wait(lock);
 	}
 	printf (">>res resived\n");
