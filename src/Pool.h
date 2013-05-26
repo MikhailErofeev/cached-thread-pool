@@ -92,6 +92,7 @@ public:
 	Future<T>* submit(Callable<T>* c);
 	int getHotThreads() const {return hotThreads;}
 	double getTimeout() const {return timeout;}
+	ExecutionUnit<void*>* findTask();
 private:
 	std::list<Worker* > workers;
 	const int hotThreads;
@@ -136,9 +137,23 @@ Future<T>* Pool::submit(Callable<T>* task){
 	}else{
 		printf ("add to queue, return nullable future\n");
 		this->tasksQueue.push_back(unit);
-	}
-	
+	}	
 	return future;
+}
+
+ExecutionUnit<void*>* Pool::findTask(){
+	printf("in find 1\n");
+	//scoped_lock lock(*queueMtx);
+	ExecutionUnit<void*>* ret;
+	if (tasksQueue.empty()){
+		printf("no tasks in queue\n");
+		ret = 0;
+	}else{
+		std::list<void*>::iterator firstIt = tasksQueue.begin();
+		ret = (ExecutionUnit<void*>*) *(firstIt);
+		tasksQueue.erase(firstIt);
+	}
+	return ret;
 }
 
 Pool::~Pool(){
@@ -184,15 +199,23 @@ void Worker::cleans(){
 void Worker::run(){
 	while(true){
 		scoped_lock lock(*mtx);
-		while (this->executionUnit == 0){
-			printf("worker start sleeping\n");
-			task_cond->wait(lock);
-			printf("worker stop sleeping\n");
-			if (deleted){
-				//cleans(); @FIXME run Worker cleans after end of thread!!!!
-				return;
+		printf("worker start find task\n");
+		//ExecutionUnit<void*>* exec = pool->findTask();
+		ExecutionUnit<void*>* exec = 0;
+		if (exec == 0){ //@TODO move to another func?
+			while (this->executionUnit == 0){
+				printf("worker start sleeping\n");
+				task_cond->wait(lock);
+				printf("worker stop sleeping\n");
+				if (deleted){
+					//clean();
+					return;
+				}
 			}
-		}
+		}else{
+			printf("worker start exec finded task\n");
+			this->executionUnit = exec;
+		}	
 		printf("start calc\n");
 		setWaiting(false);
 		ret = this->executionUnit->task->call();
