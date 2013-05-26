@@ -31,7 +31,7 @@ BOOST_AUTO_TEST_CASE( boost_threads_test ) {
 
 BOOST_AUTO_TEST_CASE(pool_trivial) {
     printf("-----------pool_trivial---------------\n");
-    Pool pool(1, 5);
+    Pool pool(1, 1, 5);
     BOOST_CHECK_EQUAL(1, pool.getHotThreads());
     StateChanger* stateChanger = new StateChanger();
 
@@ -45,7 +45,7 @@ BOOST_AUTO_TEST_CASE(pool_trivial) {
 
 BOOST_AUTO_TEST_CASE( get_result ) {
     printf("-----------get_result---------------\n");
-    Pool pool(1, 5);
+    Pool pool(1, 1, 5);
     BOOST_CHECK_EQUAL(1, pool.getHotThreads());
     for (int i = 0; i < 10; i++){
         StateChanger* stateChanger = new StateChanger();
@@ -62,7 +62,7 @@ BOOST_AUTO_TEST_CASE( get_result ) {
 
 BOOST_AUTO_TEST_CASE( queue ) {
     printf("-----------queue---------------\n");
-    Pool pool(1, 5);    
+    Pool pool(1, 1, 5);    
     Future<int>* future1 = pool.submit(new StateChanger(1));
     Future<int>* future2 = pool.submit(new StateChanger(2));
     Future<int>* future3 = pool.submit(new StateChanger(3));
@@ -85,7 +85,7 @@ BOOST_AUTO_TEST_CASE( multy_workers ) {
     printf("-----------multy_workers-------------\n");
     int workers = 5;
     int tasks = 10;
-    Pool pool(workers, 5);  
+    Pool pool(workers, workers, 5);  
     for (int i = 0; i < tasks; i++){
         Future<int>* future = pool.submit(new StateChanger(i));
         BOOST_CHECK_EQUAL(i, future->get());
@@ -108,7 +108,7 @@ class MsSleeper: public Callable<int>{
 
 BOOST_AUTO_TEST_CASE( bad_worker_waiting_mutex ) {
     printf("-----------bad_worker_waiting_mutex-------------\n");
-    Pool pool(1, 5);  
+    Pool pool(1, 1, 5);  
     Future<int>* futureInt = pool.submit(new StateChanger(2));
     BOOST_CHECK_EQUAL(2, futureInt->get());
     Future<int>* futureDouble = pool.submit(new MsSleeper(500));
@@ -118,7 +118,7 @@ BOOST_AUTO_TEST_CASE( bad_worker_waiting_mutex ) {
 
 BOOST_AUTO_TEST_CASE( add_and_remove_workers ) {
     printf("-----------add_and_remove_workers-------------\n");
-    Pool pool(2, 5);  
+    Pool pool(2, 4, 5);  
     Future<int>* future1 = pool.submit(new MsSleeper(300));
     Future<int>* future2 = pool.submit(new MsSleeper(500));
     Future<int>* future3 = pool.submit(new MsSleeper(700));

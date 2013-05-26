@@ -91,7 +91,7 @@ private:
 
 class Pool{
 public:
-	Pool(const int hotThreads, const double timeout);
+	Pool(const int hotThreads, const int maxThreads, const double timeout);
 	virtual ~Pool();
 	template <typename T>
 	Future<T>* submit(Callable<T>* c);
@@ -102,15 +102,16 @@ public:
 private:
 	std::list<Worker* > workers;
 	const int hotThreads;
+	const int maxThreads;
 	const double timeout;
 	std::list<void* > tasksQueue;
 };
 
 
-//################ Implementation ################################
+//#################### Implementation ################################
 
-Pool::Pool(const int hotThreadsParam, const double timeoutParam): 
-	hotThreads(hotThreadsParam), timeout(timeoutParam) {
+Pool::Pool(const int hotThreadsParam, const int maxThreadsParam, const double timeoutParam): 
+	hotThreads(hotThreadsParam), timeout(timeoutParam), maxThreads(maxThreadsParam) {
 	queueMtx = new boost::mutex();
 	for (int i = 0; i < hotThreads; i++){
 		Worker* worker = new Worker(this);
@@ -127,13 +128,23 @@ Future<T>* Pool::submit(Callable<T>* task){
 	scoped_lock lock(*queueMtx);
 	Worker* worker = 0;
 	printf("choose worker for task %d\n", task->getTaskId());
-	for (std::list<Worker*>::iterator it = this->workers.begin();
-		it != this->workers.end(); 	++it){			
+	// if (!this->tasksQueue.empty()){
+		
+	// }
+	for (std::list<Worker*>::iterator it = this->workers.begin();it != this->workers.end(); ++it){			
 		if ((*it)->isWaiting()){
 			worker = (*it);
 			break;
 		}
 	}
+	// if (worker == 0 && this->workers.size() < maxThreads){
+	// 	printf("create new worker!\n");
+	// 	worker = new Worker(this);
+	// 	boost::thread thread(boost::bind(&Worker::run, worker));
+	// 	worker->thread.swap(thread);
+	// 	this->workers.push_back(worker); 
+	// }
+
 	
 	Future<T>* future = new Future<T>(task->getTaskId(), worker);
 	ExecutionUnit<T>* unit = new ExecutionUnit<T>(future, task, worker);
@@ -175,6 +186,7 @@ Pool::~Pool(){
 
 template <typename T>
 void Worker::setTask(const ExecutionUnit<T>* execUnit){
+	printf("start set task to  %d worker\n", workerId);
 	scoped_lock lock(*mtx);
 	waiting = false;
 	this->executionUnit = (ExecutionUnit<void*>*)execUnit;
@@ -209,7 +221,7 @@ void Worker::run(){
 		}
 		scoped_lock lock(*mtx);
 		// std::cout << "worker "<< workerId << "  start calc in thread " << thread.get_id() << "\n";
-		printf("worker %d start calc %d\n", workerId);
+		printf("worker %d start calc\n", workerId);
 		void* ret = this->executionUnit->task->call();
 		printf("end calc\n");
 		this->executionUnit->future->setResult(ret);
@@ -228,7 +240,7 @@ void Worker::waitForTask(){
 		 exec = pool->findTask();
 	}
 	if (exec != 0){
-		printf("worker start exec finded task\n");
+		printf("worker %d start exec finded task\n", workerId);
 		this->executionUnit = exec;
 		exec->future->setWorker(this);
 		setWaiting(false);
