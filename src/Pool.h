@@ -5,7 +5,6 @@
 #include <boost/thread/thread.hpp>
 #include <boost/thread/mutex.hpp>
 #include <utility> 
-#include <iostream>
 
 typedef boost::unique_lock<boost::mutex> scoped_lock;
 
@@ -24,8 +23,8 @@ public:
 	bool isCanceled() const {return canceled;}
 	int getTaskId() const {return taskId;}
 	void cancel();
-	void setWorker(Worker* worker); //@FIXME FUCK FUCK FUCK
-	void setResult(void* result); //@FIXME FUCK FUCK FUCK
+	void setWorker(Worker* worker); //@FIXME friends? other encapsulating?
+	void setResult(void* result); //@FIXME friends? other encapsulating?
 	T get();
 private:
 	bool done;
@@ -75,7 +74,6 @@ public:
 	bool deleted;
 	boost::condition_variable* task_cond;
 	void cleans();
-	void* ret; //@FIXME don't store it here - store in Future obj!
 	Pool* pool;
 	boost::mutex* mtx;
 	ExecutionUnit<void*>* executionUnit;
@@ -189,7 +187,6 @@ Worker::Worker(Pool* poolPrm): pool(poolPrm), workerId(generateWorkerId()){
 	mtx = new boost::mutex();
 	task_cond = new boost::condition_variable();
 	deleted = false;
-	ret = (void*)0;
 	executionUnit = 0;
 	waiting = true;
 	printf("construct worker %d\n", workerId);
@@ -211,9 +208,9 @@ void Worker::run(){
 			return;
 		}
 		scoped_lock lock(*mtx);
-		 std::cout << "worker "<< workerId << "  start calc in thread " << thread.get_id() << "\n";
-		//printf("worker %d start calc in thread %d\n", workerId, thread.get_id());
-		ret = this->executionUnit->task->call();
+		// std::cout << "worker "<< workerId << "  start calc in thread " << thread.get_id() << "\n";
+		printf("worker %d start calc %d\n", workerId);
+		void* ret = this->executionUnit->task->call();
 		printf("end calc\n");
 		this->executionUnit->future->setResult(ret);
 		printf("res setted\n");
