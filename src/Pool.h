@@ -94,12 +94,12 @@ public:
 	int getHotThreads() const {return hotThreads;}
 	double getTimeout() const {return timeout;}
 	ExecutionUnit<void*>* findTask();
-	std::list<void* > tasksQueue; //@FIXME for debug. make private!
+	boost::mutex* queueMtx;
 private:
 	std::list<Worker* > workers;
 	const int hotThreads;
 	const double timeout;
-	boost::mutex* queueMtx;
+	std::list<void* > tasksQueue;
 };
 
 
@@ -119,6 +119,7 @@ Pool::Pool(const int hotThreadsParam, const double timeoutParam):
 
 template <typename T>
 Future<T>* Pool::submit(Callable<T>* task){
+	printf("start submit\n");
 	scoped_lock lock(*queueMtx);
 	Worker* worker = 0;
 	printf("choose worker for task %d\n", task->getTaskId());
@@ -142,7 +143,6 @@ Future<T>* Pool::submit(Callable<T>* task){
 }
 
 ExecutionUnit<void*>* Pool::findTask(){
-	scoped_lock lock(*queueMtx);
 	ExecutionUnit<void*>* ret;
 	if (tasksQueue.empty()){
 		printf("no tasks in queue\n");
@@ -196,7 +196,14 @@ void Worker::cleans(){
 }
 
 void Worker::waitForTask(){
-	ExecutionUnit<void*>* exec = pool->findTask();
+	ExecutionUnit<void*>* exec;
+	{
+		scoped_lock queueLock(*pool->queueMtx);
+		if (this->executionUnit != 0){
+			return;
+		}
+		 exec = pool->findTask();
+	}
 	if (exec != 0){
 		printf("worker start exec finded task\n");
 		this->executionUnit = exec;
@@ -204,7 +211,7 @@ void Worker::waitForTask(){
 	}else{		
 		scoped_lock lock(*mtx);
 		while (this->executionUnit == 0){
-			printf("pool size: %d\n", pool->tasksQueue.size());
+			// printf("pool size: %d\n", pool->tasksQueue.size());
 			printf("worker start sleeping\n");
 			task_cond->wait(lock);
 			printf("worker stop sleeping\n");
@@ -216,7 +223,7 @@ void Worker::waitForTask(){
 	}
 }
 
-void Worker::run(){
+void Worker::run(){	
 	while(true){
 		if (this->executionUnit == 0){
 			printf("worker start find task\n");
@@ -263,7 +270,7 @@ T Future<T>::get(){
 		printf (">>waiting for ret start\n");
 		this->waitingCondition->wait(lock);
 	}
-	printf (">>res resived\n");
+	printf (">>res = %d resived\n", ret);
 	return ret;
 }
 
