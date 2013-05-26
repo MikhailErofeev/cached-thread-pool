@@ -95,14 +95,14 @@ BOOST_AUTO_TEST_CASE( multy_workers ) {
 }
 
 
-class SecSleeper: public Callable<float>{
+class MsSleeper: public Callable<int>{
     public:
-    float sleepSecs;
-    SecSleeper(float secs):sleepSecs(secs){}
-    virtual float call(){
-        printf("sleeper %d called. will sleep for = %f\n", getTaskId(), sleepSecs);
-         boost::this_thread::sleep( boost::posix_time::milliseconds((int)sleepSecs*1000));
-        return sleepSecs;
+    int sleepMss;
+    MsSleeper(int ms):sleepMss(ms){}
+    virtual int call(){
+        printf("sleeper %d called. will sleep for = %d\n", getTaskId(), sleepMss);
+         boost::this_thread::sleep( boost::posix_time::milliseconds(sleepMss));
+        return sleepMss;
     }
 };
 
@@ -111,18 +111,22 @@ BOOST_AUTO_TEST_CASE( bad_worker_waiting_mutex ) {
     Pool pool(1, 5);  
     Future<int>* futureInt = pool.submit(new StateChanger(2));
     BOOST_CHECK_EQUAL(2, futureInt->get());
-    Future<float>* futureDouble = pool.submit(new SecSleeper(0.5));
-    BOOST_CHECK_EQUAL(0.5, futureDouble->get());
+    Future<int>* futureDouble = pool.submit(new MsSleeper(500));
+    BOOST_CHECK_EQUAL(500, futureDouble->get());
     printf("stop test\n"); 
 }
 
 BOOST_AUTO_TEST_CASE( add_and_remove_workers ) {
     printf("-----------add_and_remove_workers-------------\n");
     Pool pool(2, 5);  
-    Future<float>* future = pool.submit(new SecSleeper(0.5));
-    BOOST_CHECK_EQUAL(0.5, future->get());
-    Future<float>* futureLong = pool.submit(new SecSleeper(1));
-    BOOST_CHECK_EQUAL(1, futureLong->get());
+    Future<int>* future1 = pool.submit(new MsSleeper(300));
+    Future<int>* future2 = pool.submit(new MsSleeper(500));
+    Future<int>* future3 = pool.submit(new MsSleeper(700));
+    Future<int>* future4 = pool.submit(new MsSleeper(1000));
+    BOOST_CHECK_EQUAL(1000, future4->get());
+    BOOST_CHECK_EQUAL(700, future3->get());
+    BOOST_CHECK_EQUAL(500, future2->get());
+    BOOST_CHECK_EQUAL(300, future1->get());
     printf("stop test\n"); 
 }
 
