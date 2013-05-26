@@ -94,11 +94,11 @@ public:
 	int getHotThreads() const {return hotThreads;}
 	double getTimeout() const {return timeout;}
 	ExecutionUnit<void*>* findTask();
+	std::list<void* > tasksQueue; //@FIXME for debug. make private!
 private:
 	std::list<Worker* > workers;
 	const int hotThreads;
 	const double timeout;
-	std::list<void* > tasksQueue;
 	boost::mutex* queueMtx;
 };
 
@@ -143,8 +143,7 @@ Future<T>* Pool::submit(Callable<T>* task){
 }
 
 ExecutionUnit<void*>* Pool::findTask(){
-	printf("in find 1\n");
-	//scoped_lock lock(*queueMtx);
+	scoped_lock lock(*queueMtx);
 	ExecutionUnit<void*>* ret;
 	if (tasksQueue.empty()){
 		printf("no tasks in queue\n");
@@ -198,29 +197,30 @@ void Worker::cleans(){
 }
 
 void Worker::waitForTask(){
-	//ExecutionUnit<void*>* exec = pool->findTask();
-			ExecutionUnit<void*>* exec = 0;
-			if (exec == 0){ //@TODO move to another func?
-				scoped_lock lock(*mtx);
-				while (this->executionUnit == 0){
-					printf("worker start sleeping\n");
-					task_cond->wait(lock);
-					printf("worker stop sleeping\n");
-					if (deleted){
-						//clean();
-						return;
-					}
-				}
-			}else{
-				printf("worker start exec finded task\n");
-				this->executionUnit = exec;
+	ExecutionUnit<void*>* exec = pool->findTask();
+	if (exec != 0){
+		printf("worker start exec finded task\n");
+		this->executionUnit = exec;
+		exec->future->setWorker(this);
+	}else{		
+		scoped_lock lock(*mtx);
+		while (this->executionUnit == 0){
+			printf("pool size: %d\n", pool->tasksQueue.size());
+			printf("worker start sleeping\n");
+			task_cond->wait(lock);
+			printf("worker stop sleeping\n");
+			if (deleted){
+				//clean();
+				return;
 			}
+		}
+	}
 }
 
 void Worker::run(){
 	while(true){
-		printf("worker start find task\n");
 		if (this->executionUnit == 0){
+			printf("worker start find task\n");
 			waitForTask();
 			if (deleted){
 				return;
@@ -231,7 +231,6 @@ void Worker::run(){
 		ret = this->executionUnit->task->call();
 		this->executionUnit->future->setResult(ret);
 		printf("end calc, notify\n");
-		task_cond->notify_all();
 	}
 }
 

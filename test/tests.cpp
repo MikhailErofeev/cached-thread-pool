@@ -60,16 +60,22 @@ BOOST_AUTO_TEST_CASE( get_result ) {
 }
 
 
-BOOST_AUTO_TEST_CASE( queueu ) {
+BOOST_AUTO_TEST_CASE( queue ) {
     printf("-----------queue---------------\n");
     Pool pool(1, 5);    
-    Future<int>* future1 = pool.submit(new StateChanger(100500));
-    Future<int>* future2 = pool.submit(new StateChanger());
-    Future<int>* future3 = pool.submit(new StateChanger());
-    Future<int>* future4 = pool.submit(new StateChanger());
-    Future<int>* future5 = pool.submit(new StateChanger());
-    Future<int>* future6 = pool.submit(new StateChanger());
-    Future<int>* future7 = pool.submit(new StateChanger());
-    BOOST_CHECK_EQUAL(100500, future1->get());
+    Future<int>* future1 = pool.submit(new StateChanger(1));
+    Future<int>* future2 = pool.submit(new StateChanger(2));
+    Future<int>* future3 = pool.submit(new StateChanger(3));
+    Future<int>* future4 = pool.submit(new StateChanger(4));
+    Future<int>* future5 = pool.submit(new StateChanger(5));
+    Future<int>* future6 = pool.submit(new StateChanger(6));
+    Future<int>* future7 = pool.submit(new StateChanger(7));
+    BOOST_CHECK_EQUAL(1, future1->get());
+    BOOST_CHECK_EQUAL(2, future2->get());
+    BOOST_CHECK_EQUAL(3, future3->get());
+    BOOST_CHECK_EQUAL(4, future4->get());
+    BOOST_CHECK_EQUAL(5, future5->get());
+    BOOST_CHECK_EQUAL(6, future6->get());
+    BOOST_CHECK_EQUAL(7, future7->get());
     printf("stop test\n");    
 }
