@@ -5,6 +5,7 @@
 #include <boost/thread/thread.hpp>
 #include <boost/thread/mutex.hpp>
 #include <utility> 
+//#include <logic_error> 
 
 
 typedef boost::unique_lock<boost::mutex> scoped_lock;
@@ -146,7 +147,7 @@ void Pool::tryToRemoveWorker(Worker* worker){
 
 template <typename T>
 Future<T>* Pool::submit(Callable<T>* task){
-	printf("start submit\n");
+	//printf("start submit\n");
 	scoped_lock lock(*queueMtx);
 	if (!this->tasksQueue.empty() && this->workers.size() < maxThreads){
 		startNewWorker();
@@ -155,16 +156,16 @@ Future<T>* Pool::submit(Callable<T>* task){
 	Future<T>* future = new Future<T>(task->getTaskId(), worker);
 	ExecutionUnit<T>* unit = new ExecutionUnit<T>(future, task, worker);
 	this->tasksQueue.push_back(unit);
-	printf("notify workers\n");
+	//printf("notify workers\n");
 	queue_notifier->notify_one();
 	return future;
 }
 
 ExecutionUnit<void*>* Pool::findTask(){	
-	printf("worker in finding\n");
+	//printf("worker in finding\n");
 	ExecutionUnit<void*>* ret;
 	if (tasksQueue.empty()){
-		printf("no tasks in queue\n");
+		//printf("no tasks in queue\n");
 		ret = 0;
 	}else{
 		std::list<void*>::iterator firstIt = tasksQueue.begin();
@@ -176,7 +177,7 @@ ExecutionUnit<void*>* Pool::findTask(){
 
 Pool::~Pool(){
 	scoped_lock deletionLock(*(deletingMtx));
-	printf("start pool destrunction. workers = %d. tasks = %d\n", workers.size(), tasksQueue.size());
+	//printf("start pool destrunction. workers = %d. tasks = %d\n", workers.size(), tasksQueue.size());
 	for (std::list<Worker*>::iterator it = this->workers.begin();
 		it != this->workers.end();  ++it){
 		(*(it))->deleted = true;
@@ -185,7 +186,7 @@ Pool::~Pool(){
 		queue_notifier->notify_all();
 		pool_deletition_notifier->wait(deletionLock);
 	}
-	printf("end pool destrunction\n");
+	//printf("end pool destrunction\n");
 }
 
 Worker::Worker(Pool* poolPrm): pool(poolPrm), workerId(generateWorkerId()){
@@ -193,12 +194,12 @@ Worker::Worker(Pool* poolPrm): pool(poolPrm), workerId(generateWorkerId()){
 	deleted = false;
 	executionUnit = 0;
 	waiting = true;
-	printf("construct worker %d\n", workerId);
+	//printf("construct worker %d\n", workerId);
 }
 
 
 void Worker::cleans(){
-	printf("time to die worker %d. pool = %p\n", workerId, pool);
+	//printf("time to die worker %d. pool = %p\n", workerId, pool);
 	thread.interrupt();
 	scoped_lock queueLock(*(pool->deletingMtx));
 	pool->tryToRemoveWorker(this);		
@@ -225,17 +226,17 @@ void Worker::run(){
 		}
 		scoped_lock lock(*mtx);
 		if (this->executionUnit->future->isCanceled()){
-			printf("wow, task canceled\n");
+			//printf("wow, task canceled\n");
 			setWaiting(true);
 			executionUnit = 0;
 			continue;
 		}
 		this->executionUnit->future->setWorker(this);
-		printf("worker %d start calc\n", workerId);
+		//printf("worker %d start calc\n", workerId);
 		void* ret = this->executionUnit->task->call();
-		printf("end calc\n");
+		//printf("end calc\n");
 		this->executionUnit->future->setResult(ret);
-		printf("res setted\n");
+		//printf("res setted\n");
 	}
 }
 
@@ -244,7 +245,7 @@ void Worker::waitForTask(){
 	if (deleted){
 		return;
 	}
-	printf("worker %d go to find task\n");
+	//printf("worker %d go to find task\n");
 	this->executionUnit =  pool->findTask();
 	while (this->executionUnit == 0){
 		if (deleted){
@@ -252,13 +253,13 @@ void Worker::waitForTask(){
 		}
 		boost::system_time tAbsoluteTime = 
 			boost::get_system_time() + boost::posix_time::milliseconds(pool->getTimeout() * 1000);
-		printf("worker %d start sleeping\n", workerId);
+		//printf("worker %d start sleeping\n", workerId);
 		this->pool->queue_notifier->timed_wait(queueLock, tAbsoluteTime);
 		if (boost::get_system_time() >= tAbsoluteTime){
 			pool->tryToRemoveWorker(this);
 		}
 		this->executionUnit = pool->findTask();
-		printf("worker %d stop sleeping\n", workerId);
+		//printf("worker %d stop sleeping\n", workerId);
 
 	}
 	setWaiting(false);
@@ -273,23 +274,23 @@ void Future<T>::setWorker(Worker* worker){
 template<typename T>
 void Future<T>::setResult(void* result){
 	scoped_lock lock(*workerWaitingMtx);
-	printf ("worker now set result = %d\n", (T)result);
+	//printf ("worker now set result = %d\n", (T)result);
 	ret = (T)result;
 	this->done = true;
 	this->worker->setWaiting(true);
 	this->worker->executionUnit = 0;
-	printf ("worker set ret %d and notify future\n", ret);
+	//printf ("worker set ret %d and notify future\n", ret);
 	this->waitingCondition->notify_all();	
 }
 
 template<typename T>
 void Future<T>::cancel(){	
-	printf("start cancel\n");
+	//printf("start cancel\n");
 	scoped_lock lock(*workerWaitingMtx);
 	canceled = true;
 	this->waitingCondition->notify_one();
 	if (worker != 0){	
-		printf("try to delete worker\n");
+		//printf("try to delete worker\n");
 		worker->deleted = true;
 		worker->cleans();
 	}
@@ -297,21 +298,24 @@ void Future<T>::cancel(){
 
 template<typename T>
 T Future<T>::get(){	
-	printf (">>start getting\n");
+	//printf (">>start getting\n");
 	if (isDone()){
 		return ret;
 	}
+	if (isCanceled()){
+		throw std::logic_error("canceled");
+	}
 	waitingForWorker();
-	printf (">>worker waiting ok\n");
+	//printf (">>worker waiting ok\n");
 	scoped_lock lock(*workerWaitingMtx);
 	while (!isDone()) {
 		if (canceled){
-			printf (">>I'm future, and I canceled in get\n");
+			//printf (">>I'm future, and I canceled in get\n");
 		}
-		printf (">>start waiting for ret\n");
+		//printf (">>start waiting for ret\n");
 		this->waitingCondition->wait(lock);
 	}
-	printf (">>res resived\n");
+	//printf (">>res resived\n");
 	return ret;
 }
 
@@ -320,9 +324,9 @@ void Future<T>::waitingForWorker(){
 	scoped_lock lock(*workerWaitingMtx);
 	while(worker == 0){
 		if (canceled){
-			printf (">>I'm future, and I canceled in waiting\n");
+			//printf (">>I'm future, and I canceled in waiting\n");
 		}
-		printf (">>start waiting for worker\n");
+		//printf (">>start waiting for worker\n");
 		waitingCondition->wait(lock);
 	}
 }
