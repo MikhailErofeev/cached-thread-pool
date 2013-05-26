@@ -97,6 +97,7 @@ public:
 	Future<T>* submit(Callable<T>* c);
 	int getHotThreads() const {return hotThreads;}
 	double getTimeout() const {return timeout;}
+	int getActualWorkersCount() const {return workers.size();}
 	ExecutionUnit<void*>* findTask();
 	boost::condition_variable* queue_notifier;
 	boost::mutex* queueMtx;
@@ -128,11 +129,14 @@ template <typename T>
 Future<T>* Pool::submit(Callable<T>* task){
 	printf("start submit\n");
 	scoped_lock lock(*queueMtx);
+	if (!this->tasksQueue.empty() && this->workers.size() < maxThreads){
+		Worker* worker = new Worker(this);
+		boost::thread thread(boost::bind(&Worker::run, worker));
+		worker->thread.swap(thread);
+		//@TODO start here
+		workers.push_back(worker);
+	}
 	Worker* worker = 0;
-	printf("choose worker for task %d\n", task->getTaskId());
-	// if (!this->tasksQueue.empty()){
-
-	// }
 	Future<T>* future = new Future<T>(task->getTaskId(), worker);
 	ExecutionUnit<T>* unit = new ExecutionUnit<T>(future, task, worker);
 	this->tasksQueue.push_back(unit);
@@ -157,7 +161,7 @@ ExecutionUnit<void*>* Pool::findTask(){
 
 Pool::~Pool(){
 	scoped_lock queueLock(*(queueMtx));
-	printf("start pool destrunction\n");
+	printf("start pool destrunction. workers = %d\n", workers.size());
 	for (std::list<Worker*>::iterator it = this->workers.begin();
 		it != this->workers.end(); 
 		++it){

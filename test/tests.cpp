@@ -119,14 +119,17 @@ BOOST_AUTO_TEST_CASE( bad_worker_waiting_mutex ) {
 BOOST_AUTO_TEST_CASE( add_and_remove_workers ) {
     printf("-----------add_and_remove_workers-------------\n");
     Pool pool(2, 4, 5);  
-    Future<int>* future1 = pool.submit(new MsSleeper(300));
+    Future<int>* future0 = pool.submit(new MsSleeper(1500));
+    Future<int>* future1 = pool.submit(new MsSleeper(1300));
     Future<int>* future2 = pool.submit(new MsSleeper(500));
     Future<int>* future3 = pool.submit(new MsSleeper(700));
-    Future<int>* future4 = pool.submit(new MsSleeper(1000));
+    Future<int>* future4 = pool.submit(new MsSleeper(1000));    
     BOOST_CHECK_EQUAL(1000, future4->get());
     BOOST_CHECK_EQUAL(700, future3->get());
     BOOST_CHECK_EQUAL(500, future2->get());
-    BOOST_CHECK_EQUAL(300, future1->get());
+    BOOST_CHECK_EQUAL(1300, future1->get());
+    BOOST_CHECK_EQUAL(1500, future0->get());
+    BOOST_CHECK_EQUAL(4, pool.getActualWorkersCount());
     printf("stop test\n"); 
 }
 
