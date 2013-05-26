@@ -6,6 +6,7 @@
 #include <boost/thread/mutex.hpp>
 #include <utility> 
 
+
 typedef boost::unique_lock<boost::mutex> scoped_lock;
 
 class Worker;
@@ -180,8 +181,8 @@ Pool::~Pool(){
 		it != this->workers.end();  ++it){
 		(*(it))->deleted = true;
 	}
-	queue_notifier->notify_all();
 	while (workers.size() > 0){
+		queue_notifier->notify_all();
 		pool_deletition_notifier->wait(deletionLock);
 	}
 	printf("end pool destrunction\n");
@@ -246,15 +247,15 @@ void Worker::waitForTask(){
 	printf("worker %d go to find task\n");
 	this->executionUnit =  pool->findTask();
 	while (this->executionUnit == 0){
+		if (deleted){
+			return;
+		}
 		boost::system_time tAbsoluteTime = 
 			boost::get_system_time() + boost::posix_time::milliseconds(pool->getTimeout() * 1000);
 		printf("worker %d start sleeping\n", workerId);
 		this->pool->queue_notifier->timed_wait(queueLock, tAbsoluteTime);
 		if (boost::get_system_time() >= tAbsoluteTime){
 			pool->tryToRemoveWorker(this);
-		}
-		if (deleted){
-			return;
 		}
 		this->executionUnit = pool->findTask();
 		printf("worker %d stop sleeping\n", workerId);
