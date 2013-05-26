@@ -81,6 +81,7 @@ public:
 	ExecutionUnit<void*>* executionUnit;
 private:
 	bool waiting;
+	void waitForTask();
 };
 
 
@@ -106,6 +107,7 @@ private:
 
 Pool::Pool(const int hotThreadsParam, const double timeoutParam): 
 	hotThreads(hotThreadsParam), timeout(timeoutParam) {
+	queueMtx = new boost::mutex();
 	for (int i = 0; i < hotThreads; i++){
 		Worker* worker = new Worker(this);
 		boost::thread thread(boost::bind(&Worker::run, worker));
@@ -113,7 +115,6 @@ Pool::Pool(const int hotThreadsParam, const double timeoutParam):
 		//@TODO start here
 		workers.push_back(worker);
 	}
-	queueMtx = new boost::mutex();
 }
 
 template <typename T>
@@ -196,31 +197,39 @@ void Worker::cleans(){
 	delete mtx;
 }
 
+void Worker::waitForTask(){
+	//ExecutionUnit<void*>* exec = pool->findTask();
+			ExecutionUnit<void*>* exec = 0;
+			if (exec == 0){ //@TODO move to another func?
+				scoped_lock lock(*mtx);
+				while (this->executionUnit == 0){
+					printf("worker start sleeping\n");
+					task_cond->wait(lock);
+					printf("worker stop sleeping\n");
+					if (deleted){
+						//clean();
+						return;
+					}
+				}
+			}else{
+				printf("worker start exec finded task\n");
+				this->executionUnit = exec;
+			}
+}
+
 void Worker::run(){
 	while(true){
-		scoped_lock lock(*mtx);
 		printf("worker start find task\n");
-		//ExecutionUnit<void*>* exec = pool->findTask();
-		ExecutionUnit<void*>* exec = 0;
-		if (exec == 0){ //@TODO move to another func?
-			while (this->executionUnit == 0){
-				printf("worker start sleeping\n");
-				task_cond->wait(lock);
-				printf("worker stop sleeping\n");
-				if (deleted){
-					//clean();
-					return;
-				}
+		if (this->executionUnit == 0){
+			waitForTask();
+			if (deleted){
+				return;
 			}
-		}else{
-			printf("worker start exec finded task\n");
-			this->executionUnit = exec;
-		}	
+		}
 		printf("start calc\n");
 		setWaiting(false);
 		ret = this->executionUnit->task->call();
 		this->executionUnit->future->setResult(ret);
-		this->executionUnit = 0;
 		printf("end calc, notify\n");
 		task_cond->notify_all();
 	}
@@ -236,6 +245,7 @@ template<typename T>
 void Future<T>::setResult(void* result){
 	scoped_lock lock(*workerWaitingMtx);
 	ret = (T)result;
+	this->worker->executionUnit = 0;
 	this->done = true;
 	this->worker->setWaiting(true);
 	this->waitingCondition->notify_all();
