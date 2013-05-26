@@ -98,6 +98,7 @@ public:
 	int getHotThreads() const {return hotThreads;}
 	double getTimeout() const {return timeout;}
 	ExecutionUnit<void*>* findTask();
+	boost::condition_variable* queue_notifier;
 	boost::mutex* queueMtx;
 private:
 	std::list<Worker* > workers;
@@ -113,6 +114,7 @@ private:
 Pool::Pool(const int hotThreadsParam, const int maxThreadsParam, const double timeoutParam): 
 	hotThreads(hotThreadsParam), timeout(timeoutParam), maxThreads(maxThreadsParam) {
 	queueMtx = new boost::mutex();
+	queue_notifier = new boost::condition_variable();
 	for (int i = 0; i < hotThreads; i++){
 		Worker* worker = new Worker(this);
 		boost::thread thread(boost::bind(&Worker::run, worker));
@@ -129,36 +131,44 @@ Future<T>* Pool::submit(Callable<T>* task){
 	Worker* worker = 0;
 	printf("choose worker for task %d\n", task->getTaskId());
 	// if (!this->tasksQueue.empty()){
-		
-	// }
-	for (std::list<Worker*>::iterator it = this->workers.begin();it != this->workers.end(); ++it){			
-		if ((*it)->isWaiting()){
-			worker = (*it);
-			break;
-		}
-	}
-	// if (worker == 0 && this->workers.size() < maxThreads){
-	// 	printf("create new worker!\n");
-	// 	worker = new Worker(this);
-	// 	boost::thread thread(boost::bind(&Worker::run, worker));
-	// 	worker->thread.swap(thread);
-	// 	this->workers.push_back(worker); 
-	// }
 
-	
+	// }
 	Future<T>* future = new Future<T>(task->getTaskId(), worker);
 	ExecutionUnit<T>* unit = new ExecutionUnit<T>(future, task, worker);
-	if (worker != 0){
-		printf("set free worker\n");
-		worker->setTask(unit);
-	}else{
-		printf ("add to queue, return nullable future\n");
-		this->tasksQueue.push_back(unit);
-	}	
+	this->tasksQueue.push_back(unit);
+	printf("notify workers\n");
+	queue_notifier->notify_one();
 	return future;
+	// for (std::list<Worker*>::iterator it = this->workers.begin();it != this->workers.end(); ++it){			
+	// 	if ((*it)->isWaiting()){
+	// 		worker = (*it);
+	// 		break;
+	// 	}
+	// }
+	// // if (worker == 0 && this->workers.size() < maxThreads){
+	// // 	printf("create new worker!\n");
+	// // 	worker = new Worker(this);
+	// // 	boost::thread thread(boost::bind(&Worker::run, worker));
+	// // 	worker->thread.swap(thread);
+	// // 	this->workers.push_back(worker); 
+	// // }
+
+	
+	// Future<T>* future = new Future<T>(task->getTaskId(), worker);
+	// ExecutionUnit<T>* unit = new ExecutionUnit<T>(future, task, worker);
+	// if (worker != 0){
+	// 	printf("set free worker\n");
+	// 	worker->setTask(unit);
+	// }else{
+	// 	printf ("add to queue, return nullable future\n");
+	// 	this->tasksQueue.push_back(unit);
+	// }	
+	// return future;
 }
 
-ExecutionUnit<void*>* Pool::findTask(){
+ExecutionUnit<void*>* Pool::findTask(){	
+	// scoped_lock lock(*queueMtx);
+	printf("worker in finding\n");
 	ExecutionUnit<void*>* ret;
 	if (tasksQueue.empty()){
 		printf("no tasks in queue\n");
@@ -172,27 +182,29 @@ ExecutionUnit<void*>* Pool::findTask(){
 }
 
 Pool::~Pool(){
+	scoped_lock queueLock(*(queueMtx));
 	printf("start pool destrunction\n");
 	for (std::list<Worker*>::iterator it = this->workers.begin();
 		it != this->workers.end(); 
-		++it){		
-		delete &(*(it))->thread;
+		++it){
+		// delete &(*(it))->thread;
 		(*(it))->deleted = true;
-		(*(it))->task_cond->notify_all();
+		//(*(it))->task_cond->notify_all();
 	}
+	queue_notifier->notify_all();
 	printf("end pool destrunction\n");
 }
 
 
-template <typename T>
-void Worker::setTask(const ExecutionUnit<T>* execUnit){
-	printf("start set task to  %d worker\n", workerId);
-	scoped_lock lock(*mtx);
-	waiting = false;
-	this->executionUnit = (ExecutionUnit<void*>*)execUnit;
-	task_cond->notify_all();
-	printf("task setted to %d. notify\n", workerId);
-}
+// template <typename T>
+// void Worker::setTask(const ExecutionUnit<T>* execUnit){
+// 	printf("start set task to  %d worker\n", workerId);
+// 	scoped_lock lock(*mtx);
+// 	waiting = false;
+// 	this->executionUnit = (ExecutionUnit<void*>*)execUnit;
+// 	task_cond->notify_all();
+// 	printf("task setted to %d. notify\n", workerId);
+// }
 
 
 Worker::Worker(Pool* poolPrm): pool(poolPrm), workerId(generateWorkerId()){
@@ -220,6 +232,7 @@ void Worker::run(){
 			return;
 		}
 		scoped_lock lock(*mtx);
+		this->executionUnit->future->setWorker(this);
 		// std::cout << "worker "<< workerId << "  start calc in thread " << thread.get_id() << "\n";
 		printf("worker %d start calc\n", workerId);
 		void* ret = this->executionUnit->task->call();
@@ -230,35 +243,26 @@ void Worker::run(){
 }
 
 void Worker::waitForTask(){
-	ExecutionUnit<void*>* exec;
-	{
-		scoped_lock queueLock(*pool->queueMtx);
-		if (this->executionUnit != 0){
-			setWaiting(false);
+	scoped_lock queueLock(*(this->pool->queueMtx));
+	if (deleted){
+		return;
+	}
+	printf("worker %d go to find task\n");
+	this->executionUnit =  pool->findTask();
+	while (this->executionUnit == 0){
+		// printf("pool size: %d\n", pool->tasksQueue.size());
+		printf("worker %d start sleeping\n", workerId);
+		this->pool->queue_notifier->wait(queueLock);
+		if (deleted){
+			//clean();
+			printf("time to die worker %d\n", workerId);
 			return;
 		}
-		 exec = pool->findTask();
+		this->executionUnit = pool->findTask();
+		printf("worker %d stop sleeping\n", workerId);
+
 	}
-	if (exec != 0){
-		printf("worker %d start exec finded task\n", workerId);
-		this->executionUnit = exec;
-		exec->future->setWorker(this);
-		setWaiting(false);
-	}else{		
-		scoped_lock lock(*mtx);
-		while (this->executionUnit == 0){
-			// printf("pool size: %d\n", pool->tasksQueue.size());
-			printf("worker %d start sleeping\n", workerId);
-			task_cond->wait(lock);
-			printf("worker %d stop sleeping\n", workerId);
-			if (deleted){
-				//clean();
-				printf("time to worker %d die\n", workerId);
-				return;
-			}
-		}
-		setWaiting(false);
-	}
+	setWaiting(false);
 }
 
 template<typename T>
@@ -270,10 +274,15 @@ void Future<T>::setWorker(Worker* worker){
 template<typename T>
 void Future<T>::setResult(void* result){
 	scoped_lock lock(*workerWaitingMtx);
+	printf ("worker now set result = %d\n", (T)result);
+	printf ("set 2\n");
 	ret = (T)result;
-	this->worker->executionUnit = 0;
+	printf("worker addr %d\n", worker);
+	//this->worker->executionUnit = 0;
+	printf ("set 3\n");
 	this->done = true;
 	this->worker->setWaiting(true);
+	this->worker->executionUnit = 0;
 	printf ("worker set ret %d and notify future\n", ret);
 	this->waitingCondition->notify_all();	
 }
