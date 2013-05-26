@@ -130,7 +130,6 @@ void Pool::tryToRemoveWorker(Worker* worker){
 	if (getActualWorkersCount() > hotThreads){
 		worker->deleted = true;
 		workers.remove(worker);
-		printf("remove worker\n");
 	}
 }
 
@@ -193,7 +192,9 @@ Worker::Worker(Pool* poolPrm): pool(poolPrm), workerId(generateWorkerId()){
 
 
 void Worker::cleans(){
-	printf ("run worker\n");
+	printf("time to die worker %d\n", workerId);
+	return; 
+	//@TODO killing workers
 	task_cond->notify_all();
 	delete task_cond;
 	delete mtx;
@@ -203,6 +204,7 @@ void Worker::run(){
 	while(true){
 		waitForTask();
 		if (deleted){
+			cleans();
 			return;
 		}
 		scoped_lock lock(*mtx);
@@ -231,8 +233,6 @@ void Worker::waitForTask(){
 			pool->tryToRemoveWorker(this);
 		}
 		if (deleted){
-			//clean();
-			printf("time to die worker %d\n", workerId);
 			return;
 		}
 		this->executionUnit = pool->findTask();
