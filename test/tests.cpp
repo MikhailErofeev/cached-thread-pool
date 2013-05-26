@@ -98,10 +98,13 @@ BOOST_AUTO_TEST_CASE( multy_workers ) {
 class MsSleeper: public Callable<int>{
     public:
     int sleepMss;
+    bool over;
     MsSleeper(int ms):sleepMss(ms){}
     virtual int call(){
         printf("sleeper %d called. will sleep for = %d\n", getTaskId(), sleepMss);
          boost::this_thread::sleep( boost::posix_time::milliseconds(sleepMss));
+        printf("sleeper %d over.");
+        over = true;
         return sleepMss;
     }
 };
@@ -132,6 +135,22 @@ BOOST_AUTO_TEST_CASE( add_and_remove_workers ) {
     BOOST_CHECK_EQUAL(4, pool.getActualWorkersCount());
     boost::this_thread::sleep( boost::posix_time::milliseconds(2500));
     BOOST_CHECK_EQUAL(2, pool.getActualWorkersCount());
+    printf("stop test\n"); 
+}
+
+BOOST_AUTO_TEST_CASE( cancel_tasks ) {
+    printf("-----------cancel_tasks-------------\n");
+    Pool pool(1, 1, 2);  
+    for (int i = 0; i < 10; i++){
+        MsSleeper* task = new MsSleeper(100);
+        Future<int>* future = pool.submit(task);   
+        BOOST_CHECK_EQUAL(false, future->isDone());
+        BOOST_CHECK_EQUAL(false, future->isCanceled());
+        future->cancel();
+        BOOST_CHECK_EQUAL(true, future->isCanceled());
+        boost::this_thread::sleep( boost::posix_time::milliseconds(300));
+        BOOST_CHECK_EQUAL(false, task->over);
+    }
     printf("stop test\n"); 
 }
 

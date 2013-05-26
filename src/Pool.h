@@ -72,7 +72,6 @@ public:
 	void run();
 	boost::thread thread;
 	bool deleted;
-	boost::condition_variable* task_cond;
 	void cleans();
 	Pool* pool;
 	boost::mutex* mtx;
@@ -100,7 +99,9 @@ public:
 	int getActualWorkersCount() const {return workers.size();}
 	ExecutionUnit<void*>* findTask();
 	boost::condition_variable* queue_notifier;
+	boost::condition_variable* pool_deletition_notifier;
 	boost::mutex* queueMtx;
+	boost::mutex* deletingMtx;
 	void tryToRemoveWorker(Worker* worker);
 private:
 	std::list<Worker* > workers;
@@ -116,7 +117,9 @@ private:
 Pool::Pool(const int hotThreadsParam, const int maxThreadsParam, const double timeoutParam): 
 	hotThreads(hotThreadsParam), timeout(timeoutParam), maxThreads(maxThreadsParam) {
 	queueMtx = new boost::mutex();
+	deletingMtx = new boost::mutex();
 	queue_notifier = new boost::condition_variable();
+	pool_deletition_notifier = new boost::condition_variable();
 	for (int i = 0; i < hotThreads; i++){
 		Worker* worker = new Worker(this);
 		boost::thread thread(boost::bind(&Worker::run, worker));
@@ -127,7 +130,7 @@ Pool::Pool(const int hotThreadsParam, const int maxThreadsParam, const double ti
 }
 
 void Pool::tryToRemoveWorker(Worker* worker){
-	if (getActualWorkersCount() > hotThreads){
+	if (getActualWorkersCount() > hotThreads || worker->deleted){
 		worker->deleted = true;
 		workers.remove(worker);
 	}
@@ -168,8 +171,8 @@ ExecutionUnit<void*>* Pool::findTask(){
 }
 
 Pool::~Pool(){
-	scoped_lock queueLock(*(queueMtx));
-	printf("start pool destrunction. workers = %d\n", workers.size());
+	scoped_lock deletionLock(*(deletingMtx));
+	printf("start pool destrunction. workers = %d. tasks = %d\n", workers.size(), tasksQueue.size());
 	for (std::list<Worker*>::iterator it = this->workers.begin();
 		it != this->workers.end(); 
 		++it){
@@ -178,12 +181,14 @@ Pool::~Pool(){
 		//(*(it))->task_cond->notify_all();
 	}
 	queue_notifier->notify_all();
+	while (workers.size() > 0){
+		pool_deletition_notifier->wait(deletionLock);
+	}
 	printf("end pool destrunction\n");
 }
 
 Worker::Worker(Pool* poolPrm): pool(poolPrm), workerId(generateWorkerId()){
 	mtx = new boost::mutex();
-	task_cond = new boost::condition_variable();
 	deleted = false;
 	executionUnit = 0;
 	waiting = true;
@@ -192,12 +197,22 @@ Worker::Worker(Pool* poolPrm): pool(poolPrm), workerId(generateWorkerId()){
 
 
 void Worker::cleans(){
-	printf("time to die worker %d\n", workerId);
+	printf("time to die worker %d. pool = %p\n", workerId, pool);
+	thread.interrupt();
+	scoped_lock queueLock(*(pool->deletingMtx));
+	pool->tryToRemoveWorker(this);		
+	pool->pool_deletition_notifier->notify_one();
 	return; 
 	//@TODO killing workers
-	task_cond->notify_all();
-	delete task_cond;
-	delete mtx;
+	//
+	//delete mtx;
+	boost::mutex* localMtx = mtx;
+	{
+		// scoped_lock lock(*localMtx);
+		delete this;
+	}
+	delete localMtx;
+
 }
 
 void Worker::run(){	
@@ -208,6 +223,12 @@ void Worker::run(){
 			return;
 		}
 		scoped_lock lock(*mtx);
+		if (this->executionUnit->future->isCanceled()){
+			printf("wow, task canceled\n");
+			setWaiting(true);
+			executionUnit = 0;
+			continue;
+		}
 		this->executionUnit->future->setWorker(this);
 		printf("worker %d start calc\n", workerId);
 		void* ret = this->executionUnit->task->call();
@@ -261,6 +282,19 @@ void Future<T>::setResult(void* result){
 }
 
 template<typename T>
+void Future<T>::cancel(){	
+	printf("start cancel\n");
+	scoped_lock lock(*workerWaitingMtx);
+	canceled = true;
+	this->waitingCondition->notify_one();
+	if (worker != 0){	
+		printf("try to delete worker\n");
+		worker->deleted = true;
+		worker->cleans();
+	}
+}
+
+template<typename T>
 T Future<T>::get(){	
 	printf (">>start getting\n");
 	if (isDone()){
@@ -270,6 +304,9 @@ T Future<T>::get(){
 	printf (">>worker waiting ok\n");
 	scoped_lock lock(*workerWaitingMtx);
 	while (!isDone()) {
+		if (canceled){
+			printf (">>I'm future, and I canceled in get\n");
+		}
 		printf (">>start waiting for ret\n");
 		this->waitingCondition->wait(lock);
 	}
@@ -281,6 +318,9 @@ template<typename T>
 void Future<T>::waitingForWorker(){
 	scoped_lock lock(*workerWaitingMtx);
 	while(worker == 0){
+		if (canceled){
+			printf (">>I'm future, and I canceled in waiting\n");
+		}
 		printf (">>start waiting for worker\n");
 		waitingCondition->wait(lock);
 	}
