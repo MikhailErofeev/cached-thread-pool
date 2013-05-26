@@ -139,35 +139,9 @@ Future<T>* Pool::submit(Callable<T>* task){
 	printf("notify workers\n");
 	queue_notifier->notify_one();
 	return future;
-	// for (std::list<Worker*>::iterator it = this->workers.begin();it != this->workers.end(); ++it){			
-	// 	if ((*it)->isWaiting()){
-	// 		worker = (*it);
-	// 		break;
-	// 	}
-	// }
-	// // if (worker == 0 && this->workers.size() < maxThreads){
-	// // 	printf("create new worker!\n");
-	// // 	worker = new Worker(this);
-	// // 	boost::thread thread(boost::bind(&Worker::run, worker));
-	// // 	worker->thread.swap(thread);
-	// // 	this->workers.push_back(worker); 
-	// // }
-
-	
-	// Future<T>* future = new Future<T>(task->getTaskId(), worker);
-	// ExecutionUnit<T>* unit = new ExecutionUnit<T>(future, task, worker);
-	// if (worker != 0){
-	// 	printf("set free worker\n");
-	// 	worker->setTask(unit);
-	// }else{
-	// 	printf ("add to queue, return nullable future\n");
-	// 	this->tasksQueue.push_back(unit);
-	// }	
-	// return future;
 }
 
 ExecutionUnit<void*>* Pool::findTask(){	
-	// scoped_lock lock(*queueMtx);
 	printf("worker in finding\n");
 	ExecutionUnit<void*>* ret;
 	if (tasksQueue.empty()){
@@ -187,25 +161,13 @@ Pool::~Pool(){
 	for (std::list<Worker*>::iterator it = this->workers.begin();
 		it != this->workers.end(); 
 		++it){
-		// delete &(*(it))->thread;
+		// delete &(*(it))->thread; @TODO deleting workers
 		(*(it))->deleted = true;
 		//(*(it))->task_cond->notify_all();
 	}
 	queue_notifier->notify_all();
 	printf("end pool destrunction\n");
 }
-
-
-// template <typename T>
-// void Worker::setTask(const ExecutionUnit<T>* execUnit){
-// 	printf("start set task to  %d worker\n", workerId);
-// 	scoped_lock lock(*mtx);
-// 	waiting = false;
-// 	this->executionUnit = (ExecutionUnit<void*>*)execUnit;
-// 	task_cond->notify_all();
-// 	printf("task setted to %d. notify\n", workerId);
-// }
-
 
 Worker::Worker(Pool* poolPrm): pool(poolPrm), workerId(generateWorkerId()){
 	mtx = new boost::mutex();
@@ -226,14 +188,12 @@ void Worker::cleans(){
 
 void Worker::run(){	
 	while(true){
-		printf("worker %d start find task\n", workerId);
 		waitForTask();
 		if (deleted){
 			return;
 		}
 		scoped_lock lock(*mtx);
 		this->executionUnit->future->setWorker(this);
-		// std::cout << "worker "<< workerId << "  start calc in thread " << thread.get_id() << "\n";
 		printf("worker %d start calc\n", workerId);
 		void* ret = this->executionUnit->task->call();
 		printf("end calc\n");
@@ -250,7 +210,6 @@ void Worker::waitForTask(){
 	printf("worker %d go to find task\n");
 	this->executionUnit =  pool->findTask();
 	while (this->executionUnit == 0){
-		// printf("pool size: %d\n", pool->tasksQueue.size());
 		printf("worker %d start sleeping\n", workerId);
 		this->pool->queue_notifier->wait(queueLock);
 		if (deleted){
@@ -275,11 +234,7 @@ template<typename T>
 void Future<T>::setResult(void* result){
 	scoped_lock lock(*workerWaitingMtx);
 	printf ("worker now set result = %d\n", (T)result);
-	printf ("set 2\n");
 	ret = (T)result;
-	printf("worker addr %d\n", worker);
-	//this->worker->executionUnit = 0;
-	printf ("set 3\n");
 	this->done = true;
 	this->worker->setWaiting(true);
 	this->worker->executionUnit = 0;
