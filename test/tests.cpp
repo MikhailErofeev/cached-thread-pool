@@ -74,7 +74,6 @@ BOOST_AUTO_TEST_CASE( queue ) {
     BOOST_CHECK_EQUAL(2, future2->get());
     BOOST_CHECK_EQUAL(3, future3->get());
     BOOST_CHECK_EQUAL(4, future4->get());
-    printf("queue 4  - ok\n");    
     BOOST_CHECK_EQUAL(5, future5->get());
     BOOST_CHECK_EQUAL(6, future6->get());
     BOOST_CHECK_EQUAL(7, future7->get());
@@ -82,11 +81,13 @@ BOOST_AUTO_TEST_CASE( queue ) {
 }
 
 
-BOOST_AUTO_TEST_CASE( multy_queues ) {
-    printf("-----------multy_queues---------------\n");
-    Pool pool(3, 5);  
-    for (int i = 0; i < 1000; i++){
-        Future<int>* future1 = pool.submit(new StateChanger(i));
-        BOOST_CHECK_EQUAL(i, future1->get());
+BOOST_AUTO_TEST_CASE( multy_workers ) {
+    printf("-----------multy_workers---------------\n");
+    Pool pool(20, 5);  
+    for (int i = 0; i < 10000; i++){
+        Future<int>* future = pool.submit(new StateChanger(i));
+        BOOST_CHECK_EQUAL(i, future->get());
+        delete future;
     }
+    printf("stop test\n"); 
 }
